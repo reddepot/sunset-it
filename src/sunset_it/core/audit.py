@@ -130,7 +130,7 @@ def audit(
         profile = load_profile(profile_name, profile_overrides_dir)
     logger.info(
         "audit_start",
-        repo=str(repo),
+        repo=repo.name,
         profile=profile.name,
         checks=sorted(profile.checks),
     )
@@ -151,7 +151,7 @@ def audit(
     )
     logger.info(
         "audit_done",
-        repo=str(repo),
+        repo=repo.name,
         profile=profile.name,
         overall_status=summary.overall_status,
         passed=summary.passed,

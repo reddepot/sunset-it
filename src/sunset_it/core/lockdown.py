@@ -34,6 +34,7 @@ from sunset_it.utils.git import (
     has_tag,
     is_dirty,
     is_valid_ref_name,
+    reset_paths,
 )
 
 logger = structlog.get_logger()
@@ -189,6 +190,16 @@ def lockdown(
         if readme is None:
             skipped.append("readme_not_found")
         else:
+            # POLYLENS v0.2.3 (Kimi P1): capture the pre-banner README
+            # bytes so we can restore them if the commit fails. Without
+            # this, a failed ``commit_staged`` leaves the working tree
+            # dirty + a staged change with no commit, forcing the user
+            # to clean up by hand.
+            import contextlib
+            original_readme: str | None = None
+            with contextlib.suppress(OSError):
+                original_readme = readme.read_text(encoding="utf-8")
+
             try:
                 outcome = _add_readme_banner(
                     readme,
@@ -210,6 +221,31 @@ def lockdown(
                         actions.append("readme_banner_committed")
                     except GitError as e:
                         skipped.append(f"readme_banner_commit_failed: {e}")
+                        # Roll back to a clean state. Best-effort: if the
+                        # restore itself fails we still record the failure
+                        # but don't raise, because the lockdown report
+                        # remains the source of truth for the operator.
+                        rolled_back = False
+                        try:
+                            reset_paths(repo, readme.name)
+                            rolled_back = True
+                        except GitError as reset_e:
+                            skipped.append(
+                                f"readme_banner_unstage_failed: {reset_e}"
+                            )
+                        if original_readme is not None:
+                            try:
+                                readme.write_text(
+                                    original_readme, encoding="utf-8"
+                                )
+                                rolled_back = True
+                            except OSError as write_e:
+                                skipped.append(
+                                    f"readme_banner_restore_failed: {write_e}"
+                                )
+                        if rolled_back:
+                            actions.append("readme_banner_rolled_back")
+                            readme_banner_added = False
                 else:
                     skipped.append(f"readme_banner_already_present: {readme.name}")
             except OSError as e:
@@ -260,7 +296,8 @@ def lockdown(
     )
     logger.info(
         "lockdown_done",
-        repo=str(repo),
+        # POLYLENS v0.2.3: basename, not absolute path (Gemini P2 extended).
+        repo=repo.name,
         tag=tag_created,
         branch=branch_created,
         banner=readme_banner_added,

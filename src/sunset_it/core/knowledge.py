@@ -178,12 +178,35 @@ def knowledge(
     env = _build_jinja_env(template_overrides_dir)
 
     timestamp = datetime.now(UTC)
+    # POLYLENS v0.2.3 (Kimi P2): templates exposed adr_number/freeze_tag/
+    # repo_url placeholders that were never populated, so rendered files
+    # showed "TODO" / "0001" / "<repo>". Wire them now.
+    next_adr_n: int | None = None
+    try:
+        next_adr_path = _next_adr_path(target_root)
+        m = _ADR_FILENAME_RE.match(next_adr_path.name)
+        if m is not None:
+            next_adr_n = int(m.group(1))
+    except OSError:
+        pass
+
+    from sunset_it.utils.git import GitError, get_remote_url
+
+    repo_url: str | None = None
+    try:
+        repo_url = get_remote_url(repo, "origin")
+    except (GitError, OSError):
+        repo_url = None
+
     base_context: dict[str, Any] = {
         "generated_at": timestamp.strftime("%Y-%m-%d"),
         "freeze_status": "frozen",
         "freeze_date": timestamp.strftime("%Y-%m-%d"),
+        "freeze_tag": f"freeze-{timestamp:%Y-%m-%d}",
         "profile_name": profile.name,
         "sunset_it_version": __version__,
+        "adr_number": f"{next_adr_n:04d}" if next_adr_n else "0001",
+        "repo_url": repo_url or "<unknown>",
     }
     base_context.update(_detect_project_meta(repo))
     if extra_context:
@@ -246,8 +269,8 @@ def knowledge(
     )
     logger.info(
         "knowledge_done",
-        repo=str(repo),
-        emit_dir=str(target_root),
+        repo=repo.name,
+        emit_dir=target_root.name,
         written=len(written),
         skipped=len(skipped),
         failed=len(failed),

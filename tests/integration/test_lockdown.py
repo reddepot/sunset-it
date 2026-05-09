@@ -67,3 +67,40 @@ def test_lockdown_idempotent(tmp_repo: Path) -> None:
     assert any("branch_already_exists" in s for s in second.actions_skipped)
     assert any("readme_banner_already_present" in s for s in second.actions_skipped)
     assert first.tag_created is not None
+
+
+def test_lockdown_rolls_back_when_commit_fails(tmp_repo: Path, monkeypatch) -> None:
+    """POLYLENS v0.2.3 (Kimi P1): if commit_staged fails, README + index
+    must come back to their pre-banner state.
+
+    We force the failure by stubbing ``commit_staged`` to raise.
+    """
+    import importlib
+
+    from sunset_it.utils.git import GitError
+
+    lockdown_mod = importlib.import_module("sunset_it.core.lockdown")
+
+    def _explode(*_a, **_kw):
+        raise GitError("simulated commit failure")
+
+    monkeypatch.setattr(lockdown_mod, "commit_staged", _explode)
+
+    original_readme = (tmp_repo / "README.md").read_text(encoding="utf-8")
+    report = lockdown(tmp_repo, profile_name="solo-frozen")
+
+    # The readme must be back to its original content.
+    assert (tmp_repo / "README.md").read_text(encoding="utf-8") == original_readme
+    # The report should record the rollback.
+    assert any("commit_failed" in s for s in report.actions_skipped)
+    assert any("rolled_back" in a for a in report.actions_taken)
+    # Working tree must be clean again — git status --porcelain empty.
+    import subprocess
+    out = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(tmp_repo),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert out.stdout.strip() == "", f"working tree should be clean: {out.stdout!r}"

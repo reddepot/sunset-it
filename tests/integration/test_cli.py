@@ -9,7 +9,10 @@ from typer.testing import CliRunner
 
 from sunset_it.cli import app
 
-runner = CliRunner()
+# mix_stderr=False so structlog output (stderr) doesn't pollute the JSON
+# we expect on stdout. Tracks behaviour across typer 0.15 → 0.25 (the
+# default flipped between those versions).
+runner = CliRunner(mix_stderr=False)
 
 
 def test_version_flag() -> None:

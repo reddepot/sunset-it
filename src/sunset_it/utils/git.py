@@ -97,6 +97,26 @@ def commit_staged(repo: Path, message: str) -> None:
     _git(repo, "commit", "--quiet", "-m", message)
 
 
+def reset_paths(repo: Path, *paths: str) -> None:
+    """Unstage paths via ``git reset HEAD``.
+
+    POLYLENS v0.2.3 (Kimi P1): used to roll back ``add_paths`` when the
+    subsequent ``commit_staged`` fails — leaves no half-staged change in
+    the index.
+    """
+    _git(repo, "reset", "HEAD", "--", *paths)
+
+
+def get_remote_url(repo: Path, remote: str = "origin") -> str | None:
+    """Return ``git remote get-url <remote>`` or None if unset."""
+    try:
+        out = _git(repo, "remote", "get-url", remote)
+    except GitError:
+        return None
+    url = out.strip()
+    return url or None
+
+
 def is_valid_ref_name(name: str) -> bool:
     """True iff ``name`` is a valid git ref name.
 
