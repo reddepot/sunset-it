@@ -226,6 +226,10 @@ def lockdown_cmd(
         s for s in report.actions_skipped
         if not any(s.startswith(p) for p in benign_prefixes)
     ]
+    # v0.1.2: invalid_tag_name / invalid_branch_name are misuse (exit 3),
+    # not runtime failures (exit 2).
+    if any(s.startswith(("invalid_tag_name", "invalid_branch_name")) for s in actual_failures):
+        raise typer.Exit(code=3)
     raise typer.Exit(code=2 if actual_failures else 0)
 
 

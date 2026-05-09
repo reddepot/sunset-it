@@ -37,6 +37,23 @@ def test_lockdown_commits_banner_before_tag(tmp_repo: Path) -> None:
     assert current_sha(tmp_repo)
 
 
+def test_lockdown_invalid_tag_name_aborts_atomically(tmp_repo: Path) -> None:
+    """Spec attack v0.1.2 (Codex P1): invalid tag_name must NOT mutate
+    the repo. Validation runs before banner / tag / branch.
+    """
+    report = lockdown(
+        tmp_repo,
+        tag_name="not a valid ref",  # spaces are illegal in git refs
+        profile_name="solo-frozen",
+        allow_dirty=False,
+    )
+    assert report.tag_created is None
+    assert report.branch_created is None
+    assert report.readme_banner_added is False
+    assert any("invalid_tag_name" in s for s in report.actions_skipped)
+    assert is_dirty(tmp_repo) is False  # working tree untouched
+
+
 def test_lockdown_idempotent(tmp_repo: Path) -> None:
     """Spec attack v0.1.1 (Gemini P1): the previous version of this
     test had to ``git commit`` the banner manually between the two

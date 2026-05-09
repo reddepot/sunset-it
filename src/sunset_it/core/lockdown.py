@@ -33,6 +33,7 @@ from sunset_it.utils.git import (
     has_branch,
     has_tag,
     is_dirty,
+    is_valid_ref_name,
 )
 
 logger = structlog.get_logger()
@@ -120,6 +121,28 @@ def lockdown(
     actions: list[str] = []
     skipped: list[str] = []
 
+    # Spec attack v0.1.2 (Codex P1): validate tag_name + branch_name as
+    # git refs BEFORE any mutation. The previous version mutated the
+    # README, then attempted to create the tag, then noticed the tag was
+    # invalid — leaving a partial state (banner committed but no tag).
+    # Now we abort atomically before touching anything.
+    final_tag_candidate = tag_name or _default_tag_name(timestamp)
+    invalid_refs: list[str] = []
+    if not is_valid_ref_name(final_tag_candidate):
+        invalid_refs.append(f"invalid_tag_name: {final_tag_candidate!r}")
+    if not is_valid_ref_name(branch_name):
+        invalid_refs.append(f"invalid_branch_name: {branch_name!r}")
+    if invalid_refs:
+        skipped.extend(invalid_refs)
+        return LockdownReport(
+            timestamp=timestamp,
+            sunset_it_version=__version__,
+            repo_path=repo,
+            profile_name=profile.name,
+            actions_taken=actions,
+            actions_skipped=skipped,
+        )
+
     if not allow_dirty:
         try:
             if is_dirty(repo):
@@ -146,7 +169,7 @@ def lockdown(
                 actions_skipped=skipped,
             )
 
-    final_tag = tag_name or _default_tag_name(timestamp)
+    final_tag = final_tag_candidate
 
     # Spec attack v0.1.1 (Gemini P1): the previous order was
     # tag → branch → README banner. The banner write left the working

@@ -95,3 +95,27 @@ def add_paths(repo: Path, *paths: str) -> None:
 def commit_staged(repo: Path, message: str) -> None:
     """Commit currently-staged changes (no-op if nothing staged)."""
     _git(repo, "commit", "--quiet", "-m", message)
+
+
+def is_valid_ref_name(name: str) -> bool:
+    """True iff ``name`` is a valid git ref name.
+
+    Spec attack v0.1.2 (Codex P1): we shell out to
+    ``git check-ref-format`` rather than reproduce its rules. This
+    keeps the validation in lock-step with whatever git accepts.
+    Returns False on any failure (invalid format, missing git, etc.).
+    """
+    git_bin = shutil.which("git")
+    if git_bin is None:
+        return False
+    try:
+        result = subprocess.run(
+            [git_bin, "check-ref-format", "--allow-onelevel", name],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return result.returncode == 0
