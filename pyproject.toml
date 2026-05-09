@@ -45,10 +45,21 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sunset_it"]
+# YAML profiles + Jinja2 templates ship as package data; ``packages``
+# above already pulls them in, so we declare the patterns explicitly
+# here rather than re-listing them under ``force-include`` (which
+# previously caused duplicate ZIP entries — Codex P1 from POLYBUILD
+# spec attack).
 
-[tool.hatch.build.targets.wheel.force-include]
-"src/sunset_it/profiles" = "sunset_it/profiles"
-"src/sunset_it/templates" = "sunset_it/templates"
+[tool.hatch.build.targets.wheel.shared-data]
+
+[tool.hatch.build]
+include = [
+    "src/sunset_it/**/*.py",
+    "src/sunset_it/profiles/*.yaml",
+    "src/sunset_it/templates/*.j2",
+    "src/sunset_it/templates/.gitignore.j2",
+]
 
 [tool.ruff]
 line-length = 100
