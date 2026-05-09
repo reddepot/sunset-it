@@ -113,11 +113,22 @@ def audit_cmd(
     else:
         sys.stdout.write(audit_to_human(report))
 
-    exit_code = report.exit_code()
+    # POLYLENS external (Gemini P1): the previous logic took ``report.
+    # exit_code()`` (which returns 1 on warnings) and only widened it.
+    # ``--fail-on=blocker`` was therefore inoperative — it left
+    # exit_code=1 on warnings even though the user explicitly opted to
+    # tolerate them. Reset based on the user's explicit threshold.
     if fail_on == "never":
         exit_code = 0
-    elif fail_on == "warning" and report.summary.failed_warning > 0:
-        exit_code = max(exit_code, 1)
+    elif fail_on == "warning":
+        if report.summary.failed_blocker > 0:
+            exit_code = 2
+        elif report.summary.failed_warning > 0:
+            exit_code = 1
+        else:
+            exit_code = 0
+    else:  # default: "blocker"
+        exit_code = 2 if report.summary.failed_blocker > 0 else 0
     raise typer.Exit(code=exit_code)
 
 

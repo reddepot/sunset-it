@@ -1,6 +1,6 @@
 [project]
 name = "sunset-it"
-version = "0.2.3"
+version = "0.2.4"
 description = "Solo dev project freeze/maintenance/sunset toolkit, focus AI-coded codebases"
 authors = [{ name = "reddie", email = "redtech@protonmail.com" }]
 readme = "README.md"
@@ -12,11 +12,13 @@ dependencies = [
     "pydantic>=2.5",
     "jinja2>=3.1",
     "pyyaml>=6.0",
-    "rich>=13.0",
     "structlog>=23.0",
-    "tomli-w>=1.0",
     "packaging>=23.0",
 ]
+# POLYLENS external (Kimi+Qwen+GLM P1/P3): ``rich`` and ``tomli-w`` were
+# listed but never imported. Removed to shrink the dep graph + wheel.
+# tomllib (stdlib) covers all our TOML reads; rich was speculatively
+# added but typer.echo + structlog handle output styling.
 
 [project.optional-dependencies]
 audit = [

@@ -113,6 +113,15 @@ def load_profile(name: str, override_dir: Path | None = None) -> Profile:
     raw = _read_profile_yaml(name, override_dir)
     parent_name = raw.get("extends")
     if parent_name:
+        # POLYLENS external (Gemini P2): ``extends`` must be a string —
+        # if a malformed YAML provides a list/dict, surface a clear
+        # error instead of crashing later on a regex/path operation.
+        if not isinstance(parent_name, str):
+            msg = (
+                f"Profile {name!r} has invalid extends: "
+                f"expected string, got {type(parent_name).__name__}"
+            )
+            raise ValueError(msg)
         # POLYLENS v0.2.2 (Kimi P1): single-level extends only — refuse
         # cycles (extends pointing back to self) and grand-parent chains.
         if parent_name == name:

@@ -35,6 +35,11 @@ _REQUIRED_KEYWORDS = (
     "Known AI debt",
 )
 
+# POLYLENS external (Gemini P1): bound the read so a pathologically
+# large manifest cannot OOM the audit. ``secrets_clean`` already enforces
+# this, the manifest check was inconsistent.
+_MAX_MANIFEST_BYTES = 200_000
+
 
 def run(repo: Path, config: ProfileCheckConfig) -> CheckResult:
     t0 = time.monotonic()
@@ -45,7 +50,8 @@ def run(repo: Path, config: ProfileCheckConfig) -> CheckResult:
         if target.stat().st_size == 0:
             continue
         try:
-            content = target.read_text(encoding="utf-8", errors="replace")
+            with target.open("r", encoding="utf-8", errors="replace") as fh:
+                content = fh.read(_MAX_MANIFEST_BYTES)
         except OSError:
             continue
         matched = [kw for kw in _REQUIRED_KEYWORDS if kw in content]

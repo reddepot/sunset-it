@@ -23,6 +23,17 @@ from sunset_it._version import __version__
 from sunset_it.models.profile import Profile
 from sunset_it.models.reports import ReactivateReport
 from sunset_it.profiles.loader import load_profile
+
+# POLYLENS external (Kimi P2): single source of truth for banner markers.
+from sunset_it.utils.banner import (
+    BANNER_MARKER_CLOSE as _BANNER_MARKER_CLOSE,
+)
+from sunset_it.utils.banner import (
+    BANNER_MARKER_OPEN as _BANNER_MARKER_OPEN,
+)
+from sunset_it.utils.banner import (
+    README_CANDIDATES as _README_CANDIDATES,
+)
 from sunset_it.utils.git import (
     GitError,
     add_paths,
@@ -35,10 +46,6 @@ from sunset_it.utils.git import (
 )
 
 logger = structlog.get_logger()
-
-_BANNER_MARKER_OPEN = "<!-- sunset-it:freeze-banner -->"
-_BANNER_MARKER_CLOSE = "<!-- /sunset-it:freeze-banner -->"
-_README_CANDIDATES = ("README.md", "Readme.md", "readme.md")
 
 
 def _readme_path(repo: Path) -> Path | None:

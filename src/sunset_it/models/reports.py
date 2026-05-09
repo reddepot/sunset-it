@@ -8,17 +8,35 @@ the version.
 Determinism: timestamps are explicit (constructed by the phase, not
 by Pydantic defaults), all ``list[...]`` fields are sorted at phase
 boundaries before model construction, no PRNG without seed.
+
+Privacy: ``repo_path`` and ``emit_dir`` are kept as absolute Paths
+internally, but their JSON serialization emits only the basename. A
+report committed to a public repo therefore can't leak the operator's
+home-dir layout. (POLYLENS external Kimi P1.)
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 
 from sunset_it.models.check import CheckResult, OverallStatus
+
+# POLYLENS external (Kimi P1): emit ``repo.name`` not ``str(repo)`` when
+# a Path is serialized into JSON. Internal code that needs the absolute
+# path can still read the field; it just isn't the value that crosses
+# the JSON boundary.
+_PathBasename = Annotated[
+    Path,
+    PlainSerializer(
+        lambda p: p.name if p else "",
+        return_type=str,
+        when_used="json",
+    ),
+]
 
 
 class AuditSummary(BaseModel):
@@ -42,7 +60,7 @@ class AuditReport(BaseModel):
     schema_version: Literal[1] = 1
     timestamp: datetime
     sunset_it_version: str
-    repo_path: Path
+    repo_path: _PathBasename
     profile_name: str
     checks: list[CheckResult]
     summary: AuditSummary
@@ -64,8 +82,8 @@ class KnowledgeReport(BaseModel):
     schema_version: Literal[1] = 1
     timestamp: datetime
     sunset_it_version: str
-    repo_path: Path
-    emit_dir: Path
+    repo_path: _PathBasename
+    emit_dir: _PathBasename
     profile_name: str
     files_written: list[Path] = Field(default_factory=list)
     files_skipped_existing: list[Path] = Field(default_factory=list)
@@ -85,7 +103,7 @@ class LockdownReport(BaseModel):
     schema_version: Literal[1] = 1
     timestamp: datetime
     sunset_it_version: str
-    repo_path: Path
+    repo_path: _PathBasename
     profile_name: str
     tag_created: str | None = None
     branch_created: str | None = None
@@ -109,7 +127,7 @@ class HardeningReport(BaseModel):
     schema_version: Literal[1] = 1
     timestamp: datetime
     sunset_it_version: str
-    repo_path: Path
+    repo_path: _PathBasename
     profile_name: str
     apply: bool
     actions_planned: list[str] = Field(default_factory=list)
@@ -149,7 +167,7 @@ class WatchReport(BaseModel):
     schema_version: Literal[1] = 1
     timestamp: datetime
     sunset_it_version: str
-    repo_path: Path
+    repo_path: _PathBasename
     profile_name: str
     alerts: list[WatchAlert] = Field(default_factory=list)
     sources_used: list[str] = Field(default_factory=list)
@@ -164,7 +182,7 @@ class ReactivateReport(BaseModel):
     schema_version: Literal[1] = 1
     timestamp: datetime
     sunset_it_version: str
-    repo_path: Path
+    repo_path: _PathBasename
     profile_name: str
     reason: str
     unfreeze_tag: str | None = None

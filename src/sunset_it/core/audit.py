@@ -171,7 +171,9 @@ def audit_to_human(report: AuditReport) -> str:
     lines: list[str] = [
         f"# sunset-it audit — {report.profile_name}",
         "",
-        f"- Repo: `{report.repo_path}`",
+        # POLYLENS external (Gemini P2): basename, not absolute path —
+        # this Markdown is often pasted into PR descriptions / issues.
+        f"- Repo: `{report.repo_path.name}`",
         f"- Timestamp: `{report.timestamp.isoformat()}`",
         f"- sunset-it version: `{report.sunset_it_version}`",
         f"- Overall status: **{report.summary.overall_status.upper()}**",

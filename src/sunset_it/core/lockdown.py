@@ -23,6 +23,17 @@ from sunset_it._version import __version__
 from sunset_it.models.profile import Profile
 from sunset_it.models.reports import LockdownReport
 from sunset_it.profiles.loader import load_profile
+
+# POLYLENS external (Kimi P2): single source of truth for banner markers.
+from sunset_it.utils.banner import (
+    BANNER_MARKER_CLOSE as _BANNER_MARKER_CLOSE,
+)
+from sunset_it.utils.banner import (
+    BANNER_MARKER_OPEN as _BANNER_MARKER_OPEN,
+)
+from sunset_it.utils.banner import (
+    README_CANDIDATES as _README_CANDIDATES,
+)
 from sunset_it.utils.git import (
     GitError,
     add_paths,
@@ -39,20 +50,35 @@ from sunset_it.utils.git import (
 
 logger = structlog.get_logger()
 
-_BANNER_MARKER_OPEN = "<!-- sunset-it:freeze-banner -->"
-_BANNER_MARKER_CLOSE = "<!-- /sunset-it:freeze-banner -->"
-_README_CANDIDATES = ("README.md", "Readme.md", "readme.md")
-
 
 def _default_tag_name(timestamp: datetime) -> str:
     return f"freeze-{timestamp:%Y-%m-%d}"
 
 
 def _readme_path(repo: Path) -> Path | None:
+    """Locate the README, refusing to follow symlinks that escape the repo.
+
+    POLYLENS external audit (Kimi+Gemini P0): lockdown was previously
+    missing the symlink-guard that ``reactivate._readme_path`` already
+    applies. A README symlinked to ``/etc/passwd`` or ``~/.ssh/config``
+    would have its banner write hit the symlink target. Same fix as
+    reactivate: resolve, verify the resolved target stays inside the
+    repo, refuse otherwise.
+    """
+    repo_resolved = repo.resolve()
     for name in _README_CANDIDATES:
         candidate = repo / name
-        if candidate.is_file():
-            return candidate
+        if not candidate.is_file():
+            continue
+        try:
+            target = candidate.resolve(strict=True)
+        except OSError:
+            continue
+        try:
+            target.relative_to(repo_resolved)
+        except ValueError:
+            continue
+        return candidate
     return None
 
 
@@ -87,7 +113,14 @@ def _add_readme_banner(
         new = content[: h1_match.end()] + "\n" + banner + content[h1_match.end():]
     else:
         new = banner + content
-    readme.write_text(new, encoding="utf-8")
+    # POLYLENS external (Gemini P1): atomic write — tmp + replace, so a
+    # SIGINT/SIGKILL between truncate and write doesn't corrupt the
+    # README. PID suffix avoids collisions when two invocations race
+    # (further mitigated by the Gemini P2 fix).
+    import os
+    tmp = readme.with_suffix(readme.suffix + f".sunset-tmp.{os.getpid()}")
+    tmp.write_text(new, encoding="utf-8")
+    tmp.replace(readme)
     return "written"
 
 

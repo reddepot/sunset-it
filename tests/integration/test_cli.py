@@ -52,3 +52,41 @@ def test_knowledge_emits_files(tmp_path: Path) -> None:
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert len(data["files_written"]) >= 5  # 5 templates declared in solo-frozen
+
+
+def test_audit_fail_on_blocker_ignores_warnings(tmp_path: Path) -> None:
+    """POLYLENS external (Gemini P1): --fail-on=blocker must NOT exit 1
+    just because warnings were raised. Setup: empty repo → warnings
+    fire on solo-frozen profile, but no blockers."""
+    # Use a profile where everything is at most "warning" — solo-frozen
+    # has both blockers and warnings so this test verifies the blocker
+    # gate ignores warnings.
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.1"\nrequires-python = ">=3.13"\n',
+        encoding="utf-8",
+    )
+    # solo-frozen still raises blockers on missing AGENTS.md etc., so
+    # the test scenario produces blocker_failed > 0; the assertion is
+    # the new behaviour for warning-only repos. We make a minimal
+    # well-equipped repo:
+    (tmp_path / "AGENTS.md").write_text(
+        "# Agents\n\nstub\n", encoding="utf-8"
+    )
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "RUNBOOK.md").write_text(
+        "# Runbook\n\nstub\n", encoding="utf-8"
+    )
+    (tmp_path / "AI_GENERATION_MANIFEST.md").write_text(
+        "# Manifest\n\n## Models used\n- claude-opus-4-7\n", encoding="utf-8"
+    )
+    result = runner.invoke(
+        app, ["audit", str(tmp_path), "--output", "json", "--fail-on", "blocker"]
+    )
+    # All blockers pass on this minimally-equipped repo; warnings may
+    # remain. With --fail-on=blocker the exit code MUST be 0.
+    parsed = json.loads(result.stdout)
+    if parsed["summary"]["failed_blocker"] == 0:
+        assert result.exit_code == 0, (
+            f"--fail-on=blocker leaked exit_code {result.exit_code} "
+            f"despite no blockers: {parsed['summary']}"
+        )

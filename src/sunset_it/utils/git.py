@@ -56,7 +56,10 @@ def has_tag(repo: Path, tag: str) -> bool:
 
 
 def create_annotated_tag(repo: Path, tag: str, message: str) -> None:
-    _git(repo, "tag", "-a", tag, "-m", message)
+    # POLYLENS external (GLM P0/defense-in-depth): pass ``--`` so git
+    # never interprets ``tag`` as a flag, even if our own
+    # ``is_valid_ref_name`` regression were to let one through.
+    _git(repo, "tag", "-a", "-m", message, "--", tag)
 
 
 def list_branches(repo: Path) -> list[str]:
@@ -70,7 +73,9 @@ def has_branch(repo: Path, branch: str) -> bool:
 
 def create_branch_from_head(repo: Path, branch: str) -> None:
     """Create ``branch`` at HEAD without checking it out."""
-    _git(repo, "branch", branch)
+    # POLYLENS external (GLM P0/defense-in-depth): same ``--`` separator
+    # rationale as ``create_annotated_tag``.
+    _git(repo, "branch", "--", branch)
 
 
 def is_dirty(repo: Path) -> bool:
@@ -124,7 +129,18 @@ def is_valid_ref_name(name: str) -> bool:
     ``git check-ref-format`` rather than reproduce its rules. This
     keeps the validation in lock-step with whatever git accepts.
     Returns False on any failure (invalid format, missing git, etc.).
+
+    POLYLENS external (Kimi P1): git check-ref-format is permissive —
+    it accepts ``HEAD``, leading dashes, ``refs/`` prefixes that work
+    syntactically but break semantically when used as a tag/branch
+    name. Reject those explicitly here to keep our contract strict.
     """
+    if not name:
+        return False
+    if name in {"HEAD", "FETCH_HEAD", "ORIG_HEAD", "MERGE_HEAD"}:
+        return False
+    if name.startswith(("-", "refs/")):
+        return False
     git_bin = shutil.which("git")
     if git_bin is None:
         return False

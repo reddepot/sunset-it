@@ -50,20 +50,34 @@ _MAX_BYTES_PER_FILE = 200_000
 
 
 def _iter_text_files(repo: Path) -> list[Path]:
+    """Walk the repo, skipping ignored dirs AND symlinks.
+
+    POLYLENS external (GLM P1): a circular symlink (a directory linking
+    to one of its parents) would loop forever inside ``rglob``. Skip
+    symlinks entirely — secrets-in-symlinks are out of scope and the
+    cycle protection is essential.
+
+    POLYLENS external (Kimi P2 perf): use ``os.walk`` with prune so we
+    never descend into ignored dirs (vs filtering after rglob).
+    """
+    import os
+
     out: list[Path] = []
-    for path in repo.rglob("*"):
-        if not path.is_file():
-            continue
-        if any(part in _IGNORE_DIRS for part in path.relative_to(repo).parts):
-            continue
-        # Match either by suffix or by basename (covers .env / Dockerfile /
-        # Makefile that have empty suffixes — Codex P2).
-        if (
-            path.suffix.lower() not in _TEXT_SUFFIXES
-            and path.name not in _TEXT_BASENAMES
-        ):
-            continue
-        out.append(path)
+    for dirpath, dirnames, filenames in os.walk(repo, followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in _IGNORE_DIRS]
+        dir_path = Path(dirpath)
+        for name in filenames:
+            full = dir_path / name
+            if full.is_symlink():
+                continue
+            if not full.is_file():
+                continue
+            if (
+                full.suffix.lower() not in _TEXT_SUFFIXES
+                and full.name not in _TEXT_BASENAMES
+            ):
+                continue
+            out.append(full)
     return sorted(out)
 
 
@@ -81,17 +95,20 @@ def run(repo: Path, config: ProfileCheckConfig) -> CheckResult:
                 content = fh.read(_MAX_BYTES_PER_FILE)
         except OSError:
             continue
+        # POLYLENS external (Kimi P2): collect ALL secrets per file —
+        # the previous ``break`` only reported the first, slowing the
+        # operator's feedback loop ("fix first secret, re-run, find
+        # second"). The preview is also shortened from 24 → 8 chars
+        # so we don't echo ~75% of a token in plain text.
         for pattern in _PATTERNS:
-            match = pattern.search(content)
-            if match is not None:
+            for match in pattern.finditer(content):
                 hits.append(
                     {
                         "path": str(path.relative_to(repo)),
                         "pattern": pattern.pattern,
-                        "preview": match.group(0)[:24] + "…",
+                        "preview": match.group(0)[:8] + "…",
                     }
                 )
-                break  # one hit per file is enough to flag it
     duration_ms = (time.monotonic() - t0) * 1000.0
 
     if not hits:

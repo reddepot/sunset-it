@@ -104,3 +104,38 @@ def test_lockdown_rolls_back_when_commit_fails(tmp_repo: Path, monkeypatch) -> N
         check=True,
     )
     assert out.stdout.strip() == "", f"working tree should be clean: {out.stdout!r}"
+
+
+def test_lockdown_rejects_symlink_readme_outside_repo(tmp_repo: Path) -> None:
+    """POLYLENS external (Kimi+Gemini P0): lockdown must not write through
+    a README symlink whose target lies outside the repo."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as outer:
+        victim = Path(outer) / "outside_repo.txt"
+        victim.write_text("# original\n", encoding="utf-8")
+
+        (tmp_repo / "README.md").unlink()
+        (tmp_repo / "README.md").symlink_to(victim)
+
+        report = lockdown(tmp_repo, profile_name="solo-frozen", allow_dirty=True)
+
+        # The victim must remain untouched.
+        assert victim.read_text(encoding="utf-8") == "# original\n"
+        # readme_banner_added must be False since lockdown refused the
+        # escaping symlink.
+        assert report.readme_banner_added is False
+
+
+def test_is_valid_ref_name_rejects_reserved(tmp_repo: Path) -> None:
+    """POLYLENS external (Kimi P1): reject HEAD, refs/, leading-dash."""
+    from sunset_it.utils.git import is_valid_ref_name
+
+    assert not is_valid_ref_name("HEAD")
+    assert not is_valid_ref_name("FETCH_HEAD")
+    assert not is_valid_ref_name("refs/tags/x")
+    assert not is_valid_ref_name("-evil")
+    assert not is_valid_ref_name("")
+    # Sanity: legitimate names still pass.
+    assert is_valid_ref_name("freeze-2026-05-09")
+    assert is_valid_ref_name("maintenance")

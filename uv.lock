@@ -1110,16 +1110,14 @@ wheels = [
 
 [[package]]
 name = "sunset-it"
-version = "0.2.3"
+version = "0.2.4"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
     { name = "packaging" },
     { name = "pydantic" },
     { name = "pyyaml" },
-    { name = "rich" },
     { name = "structlog" },
-    { name = "tomli-w" },
     { name = "typer" },
 ]
 
@@ -1149,10 +1147,8 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rich", specifier = ">=13.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1" },
     { name = "structlog", specifier = ">=23.0" },
-    { name = "tomli-w", specifier = ">=1.0" },
     { name = "typer", specifier = ">=0.15,<1.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
 ]
