@@ -42,10 +42,28 @@ _README_CANDIDATES = ("README.md", "Readme.md", "readme.md")
 
 
 def _readme_path(repo: Path) -> Path | None:
+    """Locate the README file, refusing to follow symlinks out of the repo.
+
+    POLYLENS allégé v0.2.1 (Kimi P0): a malicious or accidental symlink
+    pointing to a file outside the repo (e.g. ``/etc/passwd``) would be
+    overwritten by ``_strip_freeze_banner``'s ``write_text``. Resolve and
+    verify containment before returning.
+    """
+    repo_resolved = repo.resolve()
     for name in _README_CANDIDATES:
         candidate = repo / name
-        if candidate.is_file():
-            return candidate
+        if not candidate.is_file():
+            continue
+        try:
+            target = candidate.resolve(strict=True)
+        except OSError:
+            continue
+        try:
+            target.relative_to(repo_resolved)
+        except ValueError:
+            # Symlink escapes the repo — refuse.
+            continue
+        return candidate
     return None
 
 
@@ -53,8 +71,13 @@ def _strip_freeze_banner(readme: Path) -> bool:
     """Remove the freeze-banner block. True if anything was removed."""
     content = readme.read_text(encoding="utf-8")
     open_idx = content.find(_BANNER_MARKER_OPEN)
-    close_idx = content.find(_BANNER_MARKER_CLOSE)
-    if open_idx == -1 or close_idx == -1 or close_idx < open_idx:
+    if open_idx == -1:
+        return False
+    # POLYLENS v0.2.2 (Gemini P2): only search the close marker AFTER the
+    # open marker. A stray close marker earlier in the file would
+    # previously short-circuit and leave the real banner intact.
+    close_idx = content.find(_BANNER_MARKER_CLOSE, open_idx)
+    if close_idx == -1:
         return False
     # Remove the block including any trailing blank line so the README
     # doesn't end up with an awkward double-blank gap.
@@ -77,8 +100,16 @@ def reactivate(
     profile: Profile | None = None,
     profile_overrides_dir: Path | None = None,
     allow_dirty: bool = False,
+    require_maintenance_branch: bool = True,
 ) -> ReactivateReport:
-    """Exit a freeze with a documented reason and an unfreeze tag."""
+    """Exit a freeze with a documented reason and an unfreeze tag.
+
+    POLYLENS v0.2.1 (Kimi+Qwen P2): ``require_maintenance_branch`` is
+    True by default — reactivating a repo that was never frozen via
+    sunset-it lockdown is almost always operator error. Set False
+    only if you intentionally want the unfreeze tag without a branch
+    (e.g. recovering from a manual freeze).
+    """
     repo = repo.resolve()
     if profile is None:
         profile = load_profile(profile_name, profile_overrides_dir)
@@ -137,14 +168,36 @@ def reactivate(
                 actions_skipped=skipped,
             )
 
-    # Sanity check: the maintenance branch should exist (informational).
+    # Maintenance branch guard. By default this is a hard prerequisite —
+    # reactivating without a maintenance branch usually means the repo
+    # was never frozen via sunset-it and the operator is confused.
     try:
-        if has_branch(repo, branch_from):
-            actions.append(f"maintenance_branch_present: {branch_from}")
-        else:
-            skipped.append(f"maintenance_branch_missing: {branch_from}")
+        branch_exists = has_branch(repo, branch_from)
     except GitError as e:
         skipped.append(f"branch_lookup_failed: {e}")
+        branch_exists = None  # unknown — fail closed below
+
+    if branch_exists:
+        actions.append(f"maintenance_branch_present: {branch_from}")
+    elif require_maintenance_branch:
+        skipped.append(
+            f"maintenance_branch_missing: {branch_from} "
+            "(set require_maintenance_branch=False to override)"
+        )
+        return ReactivateReport(
+            timestamp=timestamp,
+            sunset_it_version=__version__,
+            repo_path=repo,
+            profile_name=profile.name,
+            reason=reason,
+            unfreeze_tag=None,
+            branch_used=branch_from,
+            banner_removed=False,
+            actions_taken=actions,
+            actions_skipped=skipped,
+        )
+    else:
+        skipped.append(f"maintenance_branch_missing: {branch_from} (allowed)")
 
     banner_removed = False
     readme = _readme_path(repo)
@@ -203,7 +256,9 @@ def reactivate(
     )
     logger.info(
         "reactivate_done",
-        repo=str(repo),
+        # POLYLENS v0.2.2 (Gemini P2): basename, not absolute path, to
+        # avoid leaking the operator's home dir layout in shared logs.
+        repo=repo.name,
         profile=profile.name,
         unfreeze_tag=unfreeze_tag_created,
         banner_removed=banner_removed,

@@ -46,7 +46,15 @@ _ADR_FILENAME_RE = re.compile(r"^ADR-(\d+)[-_].*\.md$")
 
 
 def _build_jinja_env(template_overrides_dir: Path | None) -> Environment:
-    """Build the Jinja2 env. Override dir wins over package resources."""
+    """Build the Jinja2 env. Override dir wins over package resources.
+
+    POLYLENS v0.2.2 (Kimi+Qwen P2): user-provided templates run in a
+    SandboxedEnvironment to block ``__class__``-walking RCE tricks. The
+    package's own templates are still trusted, but the loader doesn't
+    know which file came from where, so we sandbox uniformly.
+    """
+    from jinja2.sandbox import SandboxedEnvironment
+
     search_paths: list[str] = []
     if template_overrides_dir is not None:
         search_paths.append(str(template_overrides_dir))
@@ -55,7 +63,7 @@ def _build_jinja_env(template_overrides_dir: Path | None) -> Environment:
     # FileSystemLoader we need a real filesystem path. The wheel layout
     # we ship is on disk, so ``str()`` is correct here.
     search_paths.append(str(package_dir))
-    return Environment(
+    return SandboxedEnvironment(
         loader=FileSystemLoader(search_paths),
         autoescape=select_autoescape(disabled_extensions=("md", "j2", "txt")),
         keep_trailing_newline=True,
@@ -129,7 +137,12 @@ def _render_one(
     target_path.parent.mkdir(parents=True, exist_ok=True)
     template = env.get_template(f"{template_basename}.j2")
     rendered = template.render(**context)
-    target_path.write_text(rendered, encoding="utf-8")
+    # POLYLENS v0.2.2 (Kimi P2): atomic write — tmp file in the same dir
+    # then ``replace``. Avoids leaving truncated files on SIGKILL / power
+    # loss between ``open()`` and the final write.
+    tmp = target_path.with_suffix(target_path.suffix + ".sunset-tmp")
+    tmp.write_text(rendered, encoding="utf-8")
+    tmp.replace(target_path)
     return target_path, "written"
 
 

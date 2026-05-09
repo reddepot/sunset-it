@@ -49,3 +49,25 @@ def test_extends_deep_merges(tmp_path: Path) -> None:
     # Child overrides agents_md_present severity from warning to blocker.
     assert profile.checks["agents_md_present"].severity == "blocker"
     assert profile.checks["agents_md_present"].enabled is True
+
+
+def test_profile_name_rejects_path_traversal() -> None:
+    """POLYLENS v0.2.2 (Qwen+Kimi P1)."""
+    for evil in ("../etc/passwd", "..", "a/b", r"a\b", "a.yaml", ""):
+        with pytest.raises(ValueError, match="Invalid profile name"):
+            load_profile(evil)
+
+
+def test_profile_name_rejects_overrides_traversal(tmp_path: Path) -> None:
+    """POLYLENS v0.2.2 — extends traversal via override dir."""
+    with pytest.raises(ValueError, match="Invalid profile name"):
+        load_profile("../../etc/passwd", override_dir=tmp_path)
+
+
+def test_extends_rejects_self_cycle(tmp_path: Path) -> None:
+    """POLYLENS v0.2.2 (Kimi P1)."""
+    (tmp_path / "loopy.yaml").write_text(
+        yaml.safe_dump({"name": "loopy", "extends": "loopy"}), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="cycle"):
+        load_profile("loopy", override_dir=tmp_path)

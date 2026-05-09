@@ -73,7 +73,12 @@ class KnowledgeReport(BaseModel):
 
 
 class LockdownReport(BaseModel):
-    """Output of the ``lockdown`` phase: tag, branch, lockfile, banner."""
+    """Output of the ``lockdown`` phase: tag, branch, banner.
+
+    POLYLENS v0.2.2 (Kimi P2): the ``lockfile_path`` field was declared
+    but never assigned by ``lockdown.py``. Removed to stop misleading
+    consumers of the JSON output.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -84,7 +89,6 @@ class LockdownReport(BaseModel):
     profile_name: str
     tag_created: str | None = None
     branch_created: str | None = None
-    lockfile_path: Path | None = None
     readme_banner_added: bool = False
     actions_taken: list[str] = Field(default_factory=list)
     actions_skipped: list[str] = Field(default_factory=list)
@@ -125,6 +129,7 @@ class WatchAlert(BaseModel):
         "model_deprecation",
         "image_drift",
         "prompt_regression",
+        "meta",
     ]
     severity: Literal["blocker", "warning", "info"]
     subject: str

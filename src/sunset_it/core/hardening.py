@@ -51,23 +51,46 @@ def _build_jinja_env() -> Environment:
     )
 
 
-def _scaffold_gitignore(repo: Path, env: Environment, project_name: str) -> str:
+def _drift_check(target: Path, rendered: str) -> str | None:
+    """Return a drift label if existing content differs from the template.
+
+    POLYLENS v0.2.1 (Kimi+Qwen P2): hardening previously skipped silently
+    when a target existed, hiding the case where the user (or another
+    tool) edited the file out-of-band. We don't overwrite — but we do
+    surface the drift so the operator knows about it.
+    """
+    try:
+        current = target.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return None if current == rendered else f"drift: {target.name} differs from sunset-it template"
+
+
+def _scaffold_gitignore(repo: Path, env: Environment, project_name: str) -> tuple[str, str | None]:
     target = repo / ".gitignore"
-    if target.exists():
-        return "skipped: .gitignore already exists"
     template = env.get_template(".gitignore.j2")
-    target.write_text(template.render(project_name=project_name), encoding="utf-8")
-    return "wrote: .gitignore"
-
-
-def _scaffold_workflow(repo: Path, env: Environment, profile_name: str) -> str:
-    target = repo / ".github" / "workflows" / "sunset.yml"
+    rendered = template.render(project_name=project_name)
     if target.exists():
-        return "skipped: .github/workflows/sunset.yml already exists"
-    target.parent.mkdir(parents=True, exist_ok=True)
+        return "skipped: .gitignore already exists", _drift_check(target, rendered)
+    target.write_text(rendered, encoding="utf-8")
+    return "wrote: .gitignore", None
+
+
+def _scaffold_workflow(repo: Path, env: Environment, profile_name: str) -> tuple[str, str | None]:
+    target = repo / ".github" / "workflows" / "sunset.yml"
     template = env.get_template("sunset_workflow.yml.j2")
-    target.write_text(template.render(profile_name=profile_name), encoding="utf-8")
-    return "wrote: .github/workflows/sunset.yml"
+    rendered = template.render(
+        profile_name=profile_name,
+        sunset_it_version=__version__,
+    )
+    if target.exists():
+        return (
+            "skipped: .github/workflows/sunset.yml already exists",
+            _drift_check(target, rendered),
+        )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(rendered, encoding="utf-8")
+    return "wrote: .github/workflows/sunset.yml", None
 
 
 def hardening(
@@ -138,8 +161,14 @@ def hardening(
         for path in knowledge_report.files_skipped_existing:
             actions_skipped.append(f"target_exists: {path.relative_to(repo)}")
 
-        actions_applied.append(_scaffold_gitignore(repo, env, repo.name))
-        actions_applied.append(_scaffold_workflow(repo, env, profile.name))
+        gi_action, gi_drift = _scaffold_gitignore(repo, env, repo.name)
+        actions_applied.append(gi_action)
+        if gi_drift:
+            actions_skipped.append(gi_drift)
+        wf_action, wf_drift = _scaffold_workflow(repo, env, profile.name)
+        actions_applied.append(wf_action)
+        if wf_drift:
+            actions_skipped.append(wf_drift)
 
     report = HardeningReport(
         timestamp=timestamp,
@@ -153,7 +182,8 @@ def hardening(
     )
     logger.info(
         "hardening_done",
-        repo=str(repo),
+        # POLYLENS v0.2.2 (Gemini P2): same basename rule as watch.
+        repo=repo.name,
         profile=profile.name,
         apply=apply,
         planned=len(actions_planned),

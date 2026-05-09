@@ -45,14 +45,27 @@ def test_reactivate_round_trip(tmp_repo: Path) -> None:
 
 
 def test_reactivate_idempotent_when_no_banner(tmp_repo: Path) -> None:
-    # No prior lockdown -> README has no banner.
+    # No prior lockdown -> README has no banner. Use --skip-branch-check
+    # because the strict default refuses without a maintenance branch.
     report = reactivate(
         tmp_repo,
         reason="Just probing the no-banner path.",
         profile_name="solo-frozen",
+        require_maintenance_branch=False,
     )
     assert report.banner_removed is False
     assert "banner_absent" in " ".join(report.actions_skipped)
+
+
+def test_reactivate_refuses_without_maintenance_branch_by_default(tmp_repo: Path) -> None:
+    """POLYLENS v0.2.1 (Kimi+Qwen P2): strict-by-default."""
+    report = reactivate(
+        tmp_repo,
+        reason="No lockdown happened — should refuse.",
+        profile_name="solo-frozen",
+    )
+    assert report.unfreeze_tag is None
+    assert any(s.startswith("maintenance_branch_missing") for s in report.actions_skipped)
 
 
 def test_reactivate_invalid_tag_name(tmp_repo: Path) -> None:
@@ -75,3 +88,33 @@ def test_reactivate_refuses_dirty_tree(tmp_repo: Path) -> None:
     )
     assert report.unfreeze_tag is None
     assert any(s.startswith("working_tree_dirty") for s in report.actions_skipped)
+
+
+def test_reactivate_rejects_symlink_readme_outside_repo(tmp_repo: Path, tmp_path: Path) -> None:
+    """POLYLENS v0.2.1 (Kimi P0): refuse to write through escaping symlinks."""
+    # Create a "victim" file outside the repo.
+    victim = tmp_path / "outside_repo.txt"
+    victim.write_text("# original\n", encoding="utf-8")
+
+    # Replace README.md with a symlink pointing out of the repo.
+    (tmp_repo / "README.md").unlink()
+    (tmp_repo / "README.md").symlink_to(victim)
+
+    # Even with a banner-shaped victim, _readme_path should refuse the
+    # symlink and skip banner removal entirely.
+    victim.write_text(
+        "# external\n<!-- sunset-it:freeze-banner -->\nfrozen\n"
+        "<!-- /sunset-it:freeze-banner -->\n",
+        encoding="utf-8",
+    )
+
+    report = reactivate(
+        tmp_repo,
+        reason="probe symlink",
+        profile_name="solo-frozen",
+        require_maintenance_branch=False,
+    )
+
+    # The victim must be untouched.
+    assert victim.read_text(encoding="utf-8").startswith("# external\n")
+    assert report.banner_removed is False

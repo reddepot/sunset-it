@@ -11,6 +11,7 @@ inheritance — keeps the resolution understandable from a glance.
 
 from __future__ import annotations
 
+import re
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,22 @@ from typing import Any
 import yaml
 
 from sunset_it.models.profile import Profile
+
+# POLYLENS v0.2.2 (Qwen+Kimi P1): a profile YAML with
+# ``extends: ../../etc/passwd`` would historically resolve into a
+# directory-traversal read. Restrict profile names to a strict
+# alphanumeric/dash/underscore identifier — no path separators, no dots.
+_PROFILE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+
+
+def _validate_profile_name(name: str, source: str) -> None:
+    if not _PROFILE_NAME_RE.match(name):
+        msg = (
+            f"Invalid profile name {name!r} (from {source}): must match "
+            f"{_PROFILE_NAME_RE.pattern}. Profile names cannot contain "
+            "path separators, dots, or non-ASCII characters."
+        )
+        raise ValueError(msg)
 
 
 def _coerce_mapping(raw: Any, source: str) -> dict[str, Any]:
@@ -43,8 +60,19 @@ def _coerce_mapping(raw: Any, source: str) -> dict[str, Any]:
 
 def _read_profile_yaml(name: str, override_dir: Path | None) -> dict[str, Any]:
     """Return the raw YAML mapping for ``name``."""
+    _validate_profile_name(name, "profile lookup")
     if override_dir is not None:
         candidate = override_dir / f"{name}.yaml"
+        # POLYLENS v0.2.2 (Qwen+Kimi P1): even if name passes regex, ensure
+        # the resolved path stays inside override_dir. Defense in depth.
+        try:
+            candidate.resolve().relative_to(override_dir.resolve())
+        except ValueError as e:
+            msg = (
+                f"Profile {name!r} resolved outside override_dir "
+                f"{override_dir} — refusing to load."
+            )
+            raise ValueError(msg) from e
         if candidate.is_file():
             return _coerce_mapping(
                 yaml.safe_load(candidate.read_text(encoding="utf-8")),
@@ -81,9 +109,15 @@ def _deep_merge(parent: dict[str, Any], child: dict[str, Any]) -> dict[str, Any]
 
 def load_profile(name: str, override_dir: Path | None = None) -> Profile:
     """Load a profile by name, applying ``extends`` once if present."""
+    _validate_profile_name(name, "load_profile")
     raw = _read_profile_yaml(name, override_dir)
     parent_name = raw.get("extends")
     if parent_name:
+        # POLYLENS v0.2.2 (Kimi P1): single-level extends only — refuse
+        # cycles (extends pointing back to self) and grand-parent chains.
+        if parent_name == name:
+            msg = f"Profile {name!r} extends itself — cycle refused."
+            raise ValueError(msg)
         parent_raw = _read_profile_yaml(parent_name, override_dir)
         # Strip the parent's own "extends" so we keep a single level.
         parent_raw = {k: v for k, v in parent_raw.items() if k != "extends"}

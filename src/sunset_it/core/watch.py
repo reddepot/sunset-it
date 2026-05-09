@@ -10,16 +10,18 @@ that should wake the maintainer:
   against a small static database of known Anthropic / OpenAI
   retirement dates)
 
-The phase does NOT call any network API by default. ``pip-audit``
-is invoked as a subprocess if installed; if not, the dep-CVE signal
-is simply absent from the report (with the source listed in
-``sources_skipped``). This keeps watch usable offline / on a freeze
-machine that may not have outbound access.
+``sunset-it`` itself does not make HTTP calls. However, when
+``pip-audit`` is installed, it queries OSV / PyPI to resolve
+vulnerabilities — that's a network call. If you require strict
+offline operation, uninstall ``pip-audit``; the dep-CVE source
+will then list as skipped. The Python EOL and model deprecation
+sources are 100% offline (static snapshots).
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from datetime import UTC, date, datetime, timedelta
@@ -44,6 +46,14 @@ logger = structlog.get_logger()
 # and developers.openai.com/api/docs/deprecations.
 # Update when a new model is announced — the watch phase reads this
 # table offline rather than hitting vendor APIs from a frozen project.
+#
+# POLYLENS v0.2.1 (Kimi P2): the table is US-centric. Adding non-US
+# providers (Mistral, Cohere, Alibaba Qwen, DeepSeek, Z.ai GLM, Moonshot
+# Kimi) is tracked as future-work — none of those vendors publishes a
+# stable retirement schedule today, so we avoid speculative entries.
+_SNAPSHOT_DATE = "2026-05-09"
+_SNAPSHOT_STALE_AFTER_DAYS = 180
+
 _MODEL_DEPRECATIONS: dict[str, str] = {
     "claude-opus-4-20250514": "2026-06-15",
     "claude-sonnet-4-20250514": "2026-06-15",
@@ -73,11 +83,21 @@ def _scan_pip_audit(
     if pip_audit is None:
         return [], "pip-audit:skipped (not on PATH)"
     pyproject = repo / "pyproject.toml"
-    if not pyproject.exists():
-        return [], "pip-audit:skipped (no pyproject.toml)"
+    requirements = repo / "requirements.txt"
+    if not pyproject.exists() and not requirements.exists():
+        return [], "pip-audit:skipped (no pyproject.toml or requirements.txt)"
+    # POLYLENS v0.2.2 (Gemini P1): point pip-audit at the target — without
+    # an explicit ``--requirement`` or ``--project`` flag it silently
+    # audits its OWN venv (the one ``uv tool install pip-audit`` created),
+    # which means a frozen project's vulns go undetected.
+    cmd = [pip_audit, "--format=json", "--strict", "--progress-spinner=off"]
+    if requirements.exists():
+        cmd += ["--requirement", str(requirements)]
+    else:
+        cmd += ["--project", str(repo)]
     try:
         result = subprocess.run(
-            [pip_audit, "--format=json", "--strict", "--progress-spinner=off"],
+            cmd,
             cwd=str(repo),
             capture_output=True,
             text=True,
@@ -86,6 +106,13 @@ def _scan_pip_audit(
         )
     except (subprocess.TimeoutExpired, OSError):
         return [], "pip-audit:skipped (timeout or OS error)"
+    # POLYLENS v0.2.2 (Gemini P1): a non-zero return code with empty stdout
+    # used to be interpreted as "no findings" — silently masking crashes.
+    # Surface failures explicitly so the watch report includes them.
+    if result.returncode != 0 and not result.stdout.strip():
+        stderr_first_line = (result.stderr or "").splitlines()[:1]
+        snippet = stderr_first_line[0][:120] if stderr_first_line else "no stderr"
+        return [], f"pip-audit:failed (rc={result.returncode}: {snippet})"
     if not result.stdout.strip():
         return [], "pip-audit:no findings"
     try:
@@ -179,7 +206,10 @@ def _model_deprecation_alerts(
     today = date.today()  # noqa: DTZ011
     alerts: list[WatchAlert] = []
     for model_id, eol_iso in _MODEL_DEPRECATIONS.items():
-        if model_id not in content:
+        # POLYLENS v0.2.1 (Kimi+Qwen P1): substring matching causes false
+        # positives — a manifest mentioning "the gpt-4-0314-style approach"
+        # in prose would alert. Require the model id at a word boundary.
+        if not re.search(rf"(?<![\w\-]){re.escape(model_id)}(?![\w\-])", content):
             continue
         try:
             eol = date.fromisoformat(eol_iso)
@@ -245,6 +275,61 @@ def watch(
     alerts.extend(model_alerts)
     (sources_used if "checked" in model_src else sources_skipped).append(model_src)
 
+    # POLYLENS v0.2.1 (Kimi+Qwen P1): if every source skipped, surface a
+    # meta-alert so the operator does not mistake "0 alerts" for "all good".
+    if not sources_used:
+        alerts.append(
+            WatchAlert(
+                kind="meta",
+                severity="warning",
+                subject="watch_uncheckable",
+                threshold="sources_used==0",
+                detected_at=timestamp,
+                source="watch:self",
+                reason=(
+                    "No source could be evaluated (no pyproject.toml, no "
+                    "AI_GENERATION_MANIFEST.md, pip-audit unavailable). "
+                    "Empty alert list does NOT mean the project is healthy."
+                ),
+                remediation=(
+                    "Generate the missing manifests via "
+                    "`sunset-it hardening --apply` or install pip-audit "
+                    "(`uv tool install pip-audit`)."
+                ),
+                stable_id="meta:watch_uncheckable",
+            )
+        )
+
+    # POLYLENS v0.2.1 (Kimi P3): warn if the static snapshot is past its
+    # best-by date — a frozen project will hit this before the maintainer
+    # ever touches the codebase again.
+    try:
+        snapshot = date.fromisoformat(_SNAPSHOT_DATE)
+        age_days = (date.today() - snapshot).days  # noqa: DTZ011
+        if age_days > _SNAPSHOT_STALE_AFTER_DAYS:
+            alerts.append(
+                WatchAlert(
+                    kind="meta",
+                    severity="warning",
+                    subject="model_deprecation_snapshot_stale",
+                    threshold=f"age>{_SNAPSHOT_STALE_AFTER_DAYS}d",
+                    detected_at=timestamp,
+                    source="watch:self",
+                    reason=(
+                        f"_MODEL_DEPRECATIONS snapshot is {age_days}d old "
+                        f"(captured {_SNAPSHOT_DATE}). Vendor deprecation "
+                        "lists likely changed since then."
+                    ),
+                    remediation=(
+                        "Upgrade sunset-it (`uv tool upgrade sunset-it`) to "
+                        "pick up a refreshed snapshot."
+                    ),
+                    stable_id="meta:snapshot_stale",
+                )
+            )
+    except ValueError:
+        pass
+
     report = WatchReport(
         timestamp=timestamp,
         sunset_it_version=__version__,
@@ -256,7 +341,7 @@ def watch(
     )
     logger.info(
         "watch_done",
-        repo=str(repo),
+        repo=repo.name,  # POLYLENS v0.2.1 (Kimi P1): basename, not abs path
         profile=profile.name,
         alerts=len(alerts),
         sources_used=len(sources_used),
@@ -290,9 +375,12 @@ def watch_to_gh_summary(report: WatchReport) -> str:
         "|------|----------|---------|--------|",
     ]
     for alert in report.alerts:
+        # POLYLENS v0.2.1 (Kimi+Qwen P1): escape pipes so reasons containing
+        # ``|`` (e.g. CVE descriptions) don't shred the Markdown table.
+        safe_reason = alert.reason[:120].replace("|", "\\|").replace("\n", " ")
         lines.append(
             f"| {alert.kind} | {alert.severity} | "
-            f"`{alert.subject}` | {alert.reason[:120]} |"
+            f"`{alert.subject}` | {safe_reason} |"
         )
     lines.append("")
     lines.append(f"Sources used: {', '.join(report.sources_used) or '(none)'}")

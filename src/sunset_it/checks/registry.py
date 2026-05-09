@@ -18,10 +18,14 @@ import pkgutil
 from collections.abc import Callable
 from pathlib import Path
 
+import structlog
+
 from sunset_it.models.check import CheckResult
 from sunset_it.models.profile import ProfileCheckConfig
 
 CheckCallable = Callable[[Path, ProfileCheckConfig], CheckResult]
+
+_logger = structlog.get_logger()
 
 _REGISTRY: dict[str, CheckCallable] | None = None
 _INTERNAL_MODULES = {"registry", "__init__"}
@@ -36,7 +40,20 @@ def _discover() -> dict[str, CheckCallable]:
         name = mod_info.name
         if name in _INTERNAL_MODULES or name.startswith("_"):
             continue
-        module = importlib.import_module(f"sunset_it.checks.{name}")
+        # POLYLENS v0.2.2 (Kimi P1): a corrupt or import-erroring check
+        # module used to crash the entire CLI during discovery. Catch
+        # ImportError so a single broken plugin doesn't take everything
+        # down — log it and skip.
+        try:
+            module = importlib.import_module(f"sunset_it.checks.{name}")
+        except Exception as e:
+            _logger.warning(
+                "check_module_import_failed",
+                module=name,
+                error=str(e)[:200],
+                error_type=type(e).__name__,
+            )
+            continue
         run = getattr(module, "run", None)
         if run is None or not callable(run):
             # Module without a run() callable is ignored. Lets contributors

@@ -20,15 +20,29 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Install sunset-it
-        run: uv tool install sunset-it
+        # POLYLENS v0.2.1 (Kimi+Qwen P3): pin to the version that emitted
+        # this workflow. Bump manually after running `sunset-it hardening
+        # --apply` against a newer release.
+        run: uv tool install "sunset-it=={{ sunset_it_version | default('0.2.2') }}"
+        # POLYLENS v0.2.2: pinned at the version that emitted this file.
+        # Bump after re-running `sunset-it hardening --apply` on a newer
+        # release.
 
       - name: Run watch
         env:
           GITHUB_TOKEN: ${{ "{{" }} secrets.GITHUB_TOKEN {{ "}}" }}
+        # POLYLENS v0.2.2 (Gemini P1): no `|| true` — a blocker alert
+        # MUST fail the workflow so notifications fire. The summary still
+        # writes thanks to `>> $GITHUB_STEP_SUMMARY` running first; the
+        # `--fail-on-alert` flag only flips the exit code at the end.
         run: |
           sunset-it watch . \
             --profile {{ profile_name | default("solo-frozen", true) }} \
-            --output gh-summary >> "$GITHUB_STEP_SUMMARY" || true
+            --output gh-summary >> "$GITHUB_STEP_SUMMARY"
+          sunset-it watch . \
+            --profile {{ profile_name | default("solo-frozen", true) }} \
+            --fail-on-alert \
+            --output json > .sunset/alerts.json
 
       - name: Upload alerts artifact
         if: always()

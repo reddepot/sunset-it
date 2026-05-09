@@ -391,6 +391,11 @@ def reactivate_cmd(
         None, "--profile-overrides-dir", help="Directory of custom YAML profiles."
     ),
     allow_dirty: bool = typer.Option(False, "--allow-dirty"),
+    skip_branch_check: bool = typer.Option(
+        False,
+        "--skip-branch-check",
+        help="Allow reactivate even if the maintenance branch is missing.",
+    ),
     output: OutputFormat = typer.Option(OutputFormat.human, "--output", "-o"),
 ) -> None:
     """Exit a freeze — strip banner, commit, tag the unfreeze."""
@@ -406,6 +411,7 @@ def reactivate_cmd(
         profile_name=profile,
         profile_overrides_dir=profile_overrides_dir,
         allow_dirty=allow_dirty,
+        require_maintenance_branch=not skip_branch_check,
     )
 
     if output == OutputFormat.json:
