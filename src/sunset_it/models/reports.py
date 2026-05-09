@@ -88,3 +88,82 @@ class LockdownReport(BaseModel):
     readme_banner_added: bool = False
     actions_taken: list[str] = Field(default_factory=list)
     actions_skipped: list[str] = Field(default_factory=list)
+
+
+class HardeningReport(BaseModel):
+    """Output of the ``hardening`` phase: scaffolds for extended DoD.
+
+    The hardening phase runs the audit, then proposes (or applies, if
+    ``apply=True``) fixes for blockers that have a deterministic
+    template — typically the same files the ``knowledge`` phase
+    produces, but also CI workflow, .gitignore, .pre-commit-config,
+    and a starter pyproject.toml on green-field repos.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    timestamp: datetime
+    sunset_it_version: str
+    repo_path: Path
+    profile_name: str
+    apply: bool
+    actions_planned: list[str] = Field(default_factory=list)
+    actions_applied: list[str] = Field(default_factory=list)
+    actions_skipped: list[str] = Field(default_factory=list)
+
+
+class WatchAlert(BaseModel):
+    """One wake-policy alert."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal[
+        "cve",
+        "dependency_eol",
+        "python_eol",
+        "model_deprecation",
+        "image_drift",
+        "prompt_regression",
+    ]
+    severity: Literal["blocker", "warning", "info"]
+    subject: str
+    threshold: str
+    detected_at: datetime
+    source: str
+    reason: str
+    remediation: str
+    stable_id: str  # for issue dedup keying
+
+
+class WatchReport(BaseModel):
+    """Output of the ``watch`` phase."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    timestamp: datetime
+    sunset_it_version: str
+    repo_path: Path
+    profile_name: str
+    alerts: list[WatchAlert] = Field(default_factory=list)
+    sources_used: list[str] = Field(default_factory=list)
+    sources_skipped: list[str] = Field(default_factory=list)
+
+
+class ReactivateReport(BaseModel):
+    """Output of the ``reactivate`` phase."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    timestamp: datetime
+    sunset_it_version: str
+    repo_path: Path
+    profile_name: str
+    reason: str
+    unfreeze_tag: str | None = None
+    branch_used: str
+    banner_removed: bool = False
+    actions_taken: list[str] = Field(default_factory=list)
+    actions_skipped: list[str] = Field(default_factory=list)

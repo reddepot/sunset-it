@@ -1,0 +1,63 @@
+# Solo developer end-of-life — project will not be reactivated.
+# Stricter than solo-frozen: requires sunset notice, reproducible builds,
+# and refuses to ship with anything that would block future-self from
+# reading the codebase if security advisories pile up.
+
+name: solo-eol
+description: >-
+  Solo developer project being archived for good. No external users, no
+  intent to reactivate. Optimised for "this is my final commit, the docs
+  must explain why and what to use instead".
+
+extends: solo-frozen
+
+checks:
+  lockfile_present:
+    severity: blocker
+    enabled: true
+  agents_md_present:
+    severity: blocker
+    enabled: true
+  runbook_present:
+    severity: blocker
+    enabled: true
+  ai_generation_manifest:
+    severity: blocker
+    enabled: true
+  adr_dir_present:
+    severity: blocker
+    enabled: true
+    params:
+      min_count: 1
+  readme_freeze_banner:
+    severity: blocker
+    enabled: true
+  git_freeze_tag:
+    severity: blocker
+    enabled: true
+  secrets_clean:
+    severity: blocker
+    enabled: true
+  python_runtime_supported:
+    severity: warning
+    enabled: true
+    params:
+      window_days: 365
+
+templates:
+  emit:
+    - AGENTS.md
+    - RUNBOOK.md
+    - AI_GENERATION_MANIFEST.md
+    - SUNSET_NOTICE.md
+    - LESSONS.md
+    - ADR.md
+
+watch:
+  schedule: monthly
+  cve_threshold_cvss: 9.0
+  dep_eol_window_days: 365
+  image_drift_max_days: 730
+  model_deprecation_window_days: 365
+  prompt_regression_max_pct: 10.0
+  emit_issues: false

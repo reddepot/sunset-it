@@ -1,0 +1,63 @@
+# OSS archive — public open-source repo being archived. Strict on
+# manifest/SUNSET_NOTICE/LESSONS so future readers (forkers, students,
+# auditors) can understand the project without contacting the author.
+# Wake policy is permissive: no one is on call.
+
+name: oss-archive
+description: >-
+  Public open-source project entering archive state. External readers
+  may fork or audit; the docs must stand alone. No active maintenance,
+  but the read-only repo must remain self-explanatory for years.
+
+extends: solo-frozen
+
+checks:
+  lockfile_present:
+    severity: blocker
+    enabled: true
+  agents_md_present:
+    severity: blocker
+    enabled: true
+  runbook_present:
+    severity: blocker
+    enabled: true
+  ai_generation_manifest:
+    severity: blocker
+    enabled: true
+  adr_dir_present:
+    severity: blocker
+    enabled: true
+    params:
+      min_count: 3
+  readme_freeze_banner:
+    severity: blocker
+    enabled: true
+  git_freeze_tag:
+    severity: blocker
+    enabled: true
+  secrets_clean:
+    severity: blocker
+    enabled: true
+  python_runtime_supported:
+    severity: warning
+    enabled: true
+    params:
+      window_days: 365
+
+templates:
+  emit:
+    - AGENTS.md
+    - RUNBOOK.md
+    - AI_GENERATION_MANIFEST.md
+    - SUNSET_NOTICE.md
+    - LESSONS.md
+    - ADR.md
+
+watch:
+  schedule: monthly
+  cve_threshold_cvss: 7.0
+  dep_eol_window_days: 180
+  image_drift_max_days: 365
+  model_deprecation_window_days: 180
+  prompt_regression_max_pct: 5.0
+  emit_issues: false

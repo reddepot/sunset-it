@@ -12,18 +12,26 @@ from sunset_it.models.profile import Profile, ProfileCheckConfig
 from sunset_it.models.reports import (
     AuditReport,
     AuditSummary,
+    HardeningReport,
     KnowledgeReport,
     LockdownReport,
+    ReactivateReport,
+    WatchAlert,
+    WatchReport,
 )
 
 __all__ = [
     "AuditReport",
     "AuditSummary",
     "CheckResult",
+    "HardeningReport",
     "KnowledgeReport",
     "LockdownReport",
     "OverallStatus",
     "Profile",
     "ProfileCheckConfig",
+    "ReactivateReport",
     "Severity",
+    "WatchAlert",
+    "WatchReport",
 ]

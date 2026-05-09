@@ -1,0 +1,40 @@
+name: sunset-it watch
+
+on:
+  schedule:
+    - cron: "0 8 * * 1"  # Monday 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install sunset-it
+        run: uv tool install sunset-it
+
+      - name: Run watch
+        env:
+          GITHUB_TOKEN: ${{ "{{" }} secrets.GITHUB_TOKEN {{ "}}" }}
+        run: |
+          sunset-it watch . \
+            --profile {{ profile_name | default("solo-frozen", true) }} \
+            --output gh-summary >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload alerts artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunset-it-alerts
+          path: .sunset/alerts.json
+          if-no-files-found: ignore
+          retention-days: 90

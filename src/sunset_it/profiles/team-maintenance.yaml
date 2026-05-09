@@ -1,0 +1,63 @@
+# Team maintenance mode — feature freeze, but bug fixes / security
+# patches still flow. External users exist; SLOs apply. Tighter wake
+# policy than solo-frozen because someone is on call.
+
+name: team-maintenance
+description: >-
+  Team-owned project entering maintenance. Feature work paused, but
+  bug fixes and security patches continue under SLO. External users
+  exist. Stricter wake policy and shorter EOL windows.
+
+extends: solo-frozen
+
+checks:
+  lockfile_present:
+    severity: blocker
+    enabled: true
+  agents_md_present:
+    severity: blocker
+    enabled: true
+  runbook_present:
+    severity: blocker
+    enabled: true
+  ai_generation_manifest:
+    severity: blocker
+    enabled: true
+  adr_dir_present:
+    severity: blocker
+    enabled: true
+    params:
+      min_count: 5
+  readme_freeze_banner:
+    severity: warning
+    enabled: true
+  git_freeze_tag:
+    severity: warning
+    enabled: true
+  secrets_clean:
+    severity: blocker
+    enabled: true
+  python_runtime_supported:
+    severity: blocker
+    enabled: true
+    params:
+      window_days: 180
+
+templates:
+  emit:
+    - AGENTS.md
+    - RUNBOOK.md
+    - AI_GENERATION_MANIFEST.md
+    - SUNSET_NOTICE.md
+    - LESSONS.md
+  optional:
+    - ADR.md
+
+watch:
+  schedule: weekly
+  cve_threshold_cvss: 4.0
+  dep_eol_window_days: 60
+  image_drift_max_days: 90
+  model_deprecation_window_days: 60
+  prompt_regression_max_pct: 2.0
+  emit_issues: true

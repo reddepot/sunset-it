@@ -1,14 +1,13 @@
 """Typer entry point for ``sunset-it``.
 
-Three sub-commands are wired in v0.1: ``audit``, ``knowledge``,
-``lockdown``. ``hardening``, ``watch``, and ``reactivate`` are
-planned for v0.2 — they print a helpful "not yet implemented"
-message rather than crashing.
+Six sub-commands wired (v0.2): ``audit``, ``knowledge``,
+``lockdown``, ``hardening``, ``watch``, ``reactivate``.
 
 Output format selection mirrors the JSON-friendly tools (``gh``,
 ``trivy``): ``--output json`` writes structured data to stdout,
 ``--output human`` writes prose. Logs always go to stderr via
-structlog so stdout stays parsable.
+structlog so stdout stays parsable. ``watch`` adds a
+``gh-summary`` format (Markdown table for ``$GITHUB_STEP_SUMMARY``).
 """
 
 from __future__ import annotations
@@ -24,14 +23,18 @@ import typer
 
 from sunset_it._version import __version__
 from sunset_it.core.audit import audit, audit_to_human, audit_to_json
+from sunset_it.core.hardening import hardening
 from sunset_it.core.knowledge import knowledge
 from sunset_it.core.lockdown import lockdown
+from sunset_it.core.reactivate import reactivate
+from sunset_it.core.watch import watch, watch_to_gh_summary
 
 
 class OutputFormat(StrEnum):
     json = "json"
     markdown = "markdown"
     human = "human"
+    gh_summary = "gh-summary"
 
 
 app = typer.Typer(
@@ -255,38 +258,198 @@ def _render_lockdown_human(report: object) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-# Stubs for v0.2 — print a helpful message rather than crash.
 @app.command("hardening")
-def hardening_cmd() -> None:
-    """[v0.2] Apply extended Definition of Done."""
-    typer.echo(
-        "sunset-it hardening: not yet implemented (planned for v0.2). "
-        "Use `sunset-it audit` to see what would be flagged.",
-        err=True,
+def hardening_cmd(
+    repo: Path = typer.Argument(Path(), help="Path to repo root."),
+    profile: str = typer.Option("solo-frozen", "--profile", "-p"),
+    apply: bool = typer.Option(False, "--apply", help="Write the planned files (default: dry-run)."),
+    profile_overrides_dir: Path | None = typer.Option(
+        None, "--profile-overrides-dir", help="Directory of custom YAML profiles."
+    ),
+    output: OutputFormat = typer.Option(OutputFormat.human, "--output", "-o"),
+) -> None:
+    """Scaffold the artefacts the audit flagged as missing."""
+    if not repo.exists():
+        typer.echo(f"error: repo path not found: {repo}", err=True)
+        raise typer.Exit(code=3)
+
+    report = hardening(
+        repo,
+        profile_name=profile,
+        apply=apply,
+        profile_overrides_dir=profile_overrides_dir,
     )
-    raise typer.Exit(code=3)
+
+    if output == OutputFormat.json:
+        sys.stdout.write(report.model_dump_json(indent=2) + "\n")
+    else:
+        sys.stdout.write(_render_hardening_human(report))
+
+    raise typer.Exit(code=0)
+
+
+def _render_hardening_human(report: object) -> str:
+    data = json.loads(report.model_dump_json())  # type: ignore[attr-defined]
+    lines = [
+        f"# sunset-it hardening — {data['profile_name']}",
+        "",
+        f"- Repo: `{data['repo_path']}`",
+        f"- Apply: `{data['apply']}`",
+        f"- Timestamp: `{data['timestamp']}`",
+        "",
+        "Actions planned:",
+    ]
+    for action in data["actions_planned"] or ["(none)"]:
+        lines.append(f"  - {action}")
+    if data["actions_applied"]:
+        lines.append("")
+        lines.append("Actions applied:")
+        for action in data["actions_applied"]:
+            lines.append(f"  - {action}")
+    if data["actions_skipped"]:
+        lines.append("")
+        lines.append("Actions skipped:")
+        for skip in data["actions_skipped"]:
+            lines.append(f"  - {skip}")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 @app.command("watch")
-def watch_cmd() -> None:
-    """[v0.2] Wake-policy CI: CVE / EOL / model deprecation."""
-    typer.echo(
-        "sunset-it watch: not yet implemented (planned for v0.2). "
-        "Configure Dependabot / OSV-Scanner Action in the meantime.",
-        err=True,
+def watch_cmd(
+    repo: Path = typer.Argument(Path(), help="Path to repo root."),
+    profile: str = typer.Option("solo-frozen", "--profile", "-p"),
+    profile_overrides_dir: Path | None = typer.Option(
+        None, "--profile-overrides-dir", help="Directory of custom YAML profiles."
+    ),
+    output: OutputFormat = typer.Option(OutputFormat.human, "--output", "-o"),
+    fail_on_alert: bool = typer.Option(
+        False,
+        "--fail-on-alert",
+        help="Exit non-zero when any blocker alert is raised.",
+    ),
+) -> None:
+    """Run the wake-policy scan and emit alerts."""
+    if not repo.exists():
+        typer.echo(f"error: repo path not found: {repo}", err=True)
+        raise typer.Exit(code=3)
+
+    report = watch(
+        repo,
+        profile_name=profile,
+        profile_overrides_dir=profile_overrides_dir,
     )
-    raise typer.Exit(code=3)
+
+    if output == OutputFormat.json:
+        sys.stdout.write(report.model_dump_json(indent=2) + "\n")
+    elif output == OutputFormat.gh_summary:
+        sys.stdout.write(watch_to_gh_summary(report))
+    else:
+        sys.stdout.write(_render_watch_human(report))
+
+    if fail_on_alert and any(a.severity == "blocker" for a in report.alerts):
+        raise typer.Exit(code=2)
+    raise typer.Exit(code=0)
+
+
+def _render_watch_human(report: object) -> str:
+    data = json.loads(report.model_dump_json())  # type: ignore[attr-defined]
+    lines = [
+        f"# sunset-it watch — {data['profile_name']}",
+        "",
+        f"- Repo: `{data['repo_path']}`",
+        f"- Timestamp: `{data['timestamp']}`",
+        f"- Alerts: {len(data['alerts'])}",
+        "",
+    ]
+    if not data["alerts"]:
+        lines.append("No alerts raised.")
+    else:
+        for alert in data["alerts"]:
+            lines.append(
+                f"- [{alert['severity']}] {alert['kind']} `{alert['subject']}`: "
+                f"{alert['reason']}"
+            )
+            lines.append(f"    remediation: {alert['remediation']}")
+    if data["sources_used"]:
+        lines.append("")
+        lines.append(f"Sources used: {', '.join(data['sources_used'])}")
+    if data["sources_skipped"]:
+        lines.append(f"Sources skipped: {', '.join(data['sources_skipped'])}")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 @app.command("reactivate")
-def reactivate_cmd() -> None:
-    """[v0.2] Controlled exit from freeze."""
-    typer.echo(
-        "sunset-it reactivate: not yet implemented (planned for v0.2). "
-        "For now: `git checkout maintenance && git tag unfrozen-$(date +%Y-%m-%d)`.",
-        err=True,
+def reactivate_cmd(
+    repo: Path = typer.Argument(Path(), help="Path to repo root."),
+    reason: str = typer.Option(..., "--reason", "-r", help="Why are we reactivating?"),
+    branch_from: str = typer.Option("maintenance", "--from-branch"),
+    unfreeze_tag: str | None = typer.Option(
+        None, "--tag", help="Override unfreeze tag name (default: unfrozen-YYYY-MM-DD)."
+    ),
+    profile: str = typer.Option("solo-frozen", "--profile", "-p"),
+    profile_overrides_dir: Path | None = typer.Option(
+        None, "--profile-overrides-dir", help="Directory of custom YAML profiles."
+    ),
+    allow_dirty: bool = typer.Option(False, "--allow-dirty"),
+    output: OutputFormat = typer.Option(OutputFormat.human, "--output", "-o"),
+) -> None:
+    """Exit a freeze — strip banner, commit, tag the unfreeze."""
+    if not repo.exists():
+        typer.echo(f"error: repo path not found: {repo}", err=True)
+        raise typer.Exit(code=3)
+
+    report = reactivate(
+        repo,
+        reason=reason,
+        branch_from=branch_from,
+        unfreeze_tag_name=unfreeze_tag,
+        profile_name=profile,
+        profile_overrides_dir=profile_overrides_dir,
+        allow_dirty=allow_dirty,
     )
-    raise typer.Exit(code=3)
+
+    if output == OutputFormat.json:
+        sys.stdout.write(report.model_dump_json(indent=2) + "\n")
+    else:
+        sys.stdout.write(_render_reactivate_human(report))
+
+    benign_prefixes = (
+        "unfreeze_tag_already_exists",
+        "banner_absent",
+        "readme_not_found",
+        "maintenance_branch_present",
+        "maintenance_branch_missing",
+    )
+    actual_failures = [
+        s for s in report.actions_skipped
+        if not any(s.startswith(p) for p in benign_prefixes)
+    ]
+    if any(s.startswith("invalid_unfreeze_tag_name") for s in actual_failures):
+        raise typer.Exit(code=3)
+    raise typer.Exit(code=2 if actual_failures else 0)
+
+
+def _render_reactivate_human(report: object) -> str:
+    data = json.loads(report.model_dump_json())  # type: ignore[attr-defined]
+    lines = [
+        f"# sunset-it reactivate — {data['profile_name']}",
+        "",
+        f"- Repo: `{data['repo_path']}`",
+        f"- Timestamp: `{data['timestamp']}`",
+        f"- Reason: {data['reason']}",
+        f"- Unfreeze tag: `{data['unfreeze_tag'] or '(none)'}`",
+        f"- Branch used: `{data['branch_used']}`",
+        f"- Banner removed: `{data['banner_removed']}`",
+        "",
+        "Actions taken:",
+    ]
+    for action in data["actions_taken"] or ["(none)"]:
+        lines.append(f"  - {action}")
+    lines.append("")
+    lines.append("Actions skipped:")
+    for skip in data["actions_skipped"] or ["(none)"]:
+        lines.append(f"  - {skip}")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 if __name__ == "__main__":  # pragma: no cover

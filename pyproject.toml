@@ -1,6 +1,6 @@
 [project]
 name = "sunset-it"
-version = "0.1.2"
+version = "0.2.0"
 description = "Solo dev project freeze/maintenance/sunset toolkit, focus AI-coded codebases"
 authors = [{ name = "reddie", email = "redtech@protonmail.com" }]
 readme = "README.md"
