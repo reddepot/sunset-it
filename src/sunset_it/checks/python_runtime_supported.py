@@ -57,6 +57,8 @@ def _extract_minimum_python(repo: Path) -> str | None:
 
 
 def run(repo: Path, config: ProfileCheckConfig) -> CheckResult:
+    from datetime import date
+
     t0 = time.monotonic()
     minimum = _extract_minimum_python(repo)
     duration_ms = (time.monotonic() - t0) * 1000.0
@@ -69,8 +71,8 @@ def run(repo: Path, config: ProfileCheckConfig) -> CheckResult:
             details={},
             duration_ms=duration_ms,
         )
-    eol = _PYTHON_EOL_DATES.get(minimum)
-    if eol is None:
+    eol_iso = _PYTHON_EOL_DATES.get(minimum)
+    if eol_iso is None:
         return CheckResult(
             name="python_runtime_supported",
             severity="info",
@@ -79,19 +81,58 @@ def run(repo: Path, config: ProfileCheckConfig) -> CheckResult:
             details={"requires_python": minimum},
             duration_ms=duration_ms,
         )
-    # Lazy ad-hoc compare without a calendar dependency.
-    today = time.strftime("%Y-%m-%d")
-    if today >= eol:
+    # Spec attack v0.1.1 (Gemini P3 + Codex P2): parse via ``date`` for
+    # robust comparison and respect the profile-configurable
+    # ``window_days`` (default 180j) so a runtime that EOLs *during* the
+    # freeze window is flagged before it actually expires.
+    try:
+        eol_date = date.fromisoformat(eol_iso)
+    except ValueError:
+        return CheckResult(
+            name="python_runtime_supported",
+            severity="info",
+            passed=True,
+            message=f"EOL data malformed for {minimum}: {eol_iso}",
+            details={"requires_python": minimum, "eol_iso_raw": eol_iso},
+            duration_ms=duration_ms,
+        )
+    today = date.today()  # noqa: DTZ011 — date-only comparison, no tz needed
+    days_until_eol = (eol_date - today).days
+    window_days: int = int(config.params.get("window_days", 180))
+    if days_until_eol <= 0:
         return CheckResult(
             name="python_runtime_supported",
             severity=config.severity,
             passed=False,
             message=(
-                f"requires-python = {minimum}; this version reached EOL "
-                f"on {eol}. Migrate to a supported version before "
-                "extending the freeze."
+                f"requires-python = {minimum}; reached EOL on {eol_iso} "
+                f"({-days_until_eol} day(s) ago). Migrate before extending "
+                "the freeze."
             ),
-            details={"requires_python": minimum, "eol_date": eol},
+            details={
+                "requires_python": minimum,
+                "eol_date": eol_iso,
+                "days_until_eol": days_until_eol,
+                "window_days": window_days,
+            },
+            duration_ms=duration_ms,
+        )
+    if days_until_eol <= window_days:
+        return CheckResult(
+            name="python_runtime_supported",
+            severity=config.severity,
+            passed=False,
+            message=(
+                f"requires-python = {minimum}; EOL on {eol_iso} in "
+                f"{days_until_eol} day(s) (window={window_days}). "
+                "Plan migration during the freeze."
+            ),
+            details={
+                "requires_python": minimum,
+                "eol_date": eol_iso,
+                "days_until_eol": days_until_eol,
+                "window_days": window_days,
+            },
             duration_ms=duration_ms,
         )
     return CheckResult(
@@ -99,8 +140,14 @@ def run(repo: Path, config: ProfileCheckConfig) -> CheckResult:
         severity=config.severity,
         passed=True,
         message=(
-            f"requires-python = {minimum}; supported until {eol}."
+            f"requires-python = {minimum}; supported until {eol_iso} "
+            f"(in {days_until_eol} days)."
         ),
-        details={"requires_python": minimum, "eol_date": eol},
+        details={
+            "requires_python": minimum,
+            "eol_date": eol_iso,
+            "days_until_eol": days_until_eol,
+            "window_days": window_days,
+        },
         duration_ms=duration_ms,
     )

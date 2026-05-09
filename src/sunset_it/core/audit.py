@@ -72,11 +72,15 @@ def _run_one_check(
         return None
     callable_ = get_check(name)
     if callable_ is None:
-        # Profile references a check that does not exist on disk —
-        # surface as info-level failure rather than crash.
+        # Profile references a check that does not exist on disk.
+        # Spec attack v0.1.1 (Gemini P0): the previous version hard-coded
+        # ``severity="info"`` here, which made the audit silently green
+        # when a profile listed an unknown check at blocker severity.
+        # Propagate the profile-declared severity instead so a blocker
+        # check that was deleted-by-typo still fails the audit.
         return CheckResult(
             name=name,
-            severity="info",
+            severity=config.severity,
             passed=False,
             message=(
                 f"Profile {profile.name!r} references unknown check {name!r}. "

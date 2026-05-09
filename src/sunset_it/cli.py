@@ -209,7 +209,24 @@ def lockdown_cmd(
     else:
         sys.stdout.write(_render_lockdown_human(report))
 
-    raise typer.Exit(code=0 if not report.actions_skipped or report.tag_created else 1)
+    # Spec attack v0.1.1 (Codex P1): the previous logic returned exit
+    # code 1 on a re-run where everything was already done — the tag
+    # already exists, the branch already exists, the banner is already
+    # present. That's idempotent success, not failure. Treat any
+    # ``*_already_exists`` / ``*_already_present`` / ``readme_not_found``
+    # skip as benign; only ``*_failed`` and ``working_tree_dirty`` are
+    # actual problems.
+    benign_prefixes = (
+        "tag_already_exists",
+        "branch_already_exists",
+        "readme_banner_already_present",
+        "readme_not_found",
+    )
+    actual_failures = [
+        s for s in report.actions_skipped
+        if not any(s.startswith(p) for p in benign_prefixes)
+    ]
+    raise typer.Exit(code=2 if actual_failures else 0)
 
 
 def _render_lockdown_human(report: object) -> str:

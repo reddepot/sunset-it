@@ -20,12 +20,36 @@ import yaml
 from sunset_it.models.profile import Profile
 
 
+def _coerce_mapping(raw: Any, source: str) -> dict[str, Any]:
+    """Reject YAML inputs that aren't a top-level mapping.
+
+    Spec attack v0.1.1 (Codex P3): a hand-written profile that happens
+    to deserialise as a list (e.g. accidentally starting with ``- foo:``)
+    used to crash with ``AttributeError: 'list' object has no attribute
+    'get'``. We now raise a domain-specific ``ValueError`` so the CLI
+    layer can convert it to exit code 3 (misuse).
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        msg = (
+            f"Profile YAML at {source} is not a mapping "
+            f"(got {type(raw).__name__}). Expected a top-level dict "
+            "with at least a 'name' key."
+        )
+        raise ValueError(msg)
+    return raw
+
+
 def _read_profile_yaml(name: str, override_dir: Path | None) -> dict[str, Any]:
     """Return the raw YAML mapping for ``name``."""
     if override_dir is not None:
         candidate = override_dir / f"{name}.yaml"
         if candidate.is_file():
-            return yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+            return _coerce_mapping(
+                yaml.safe_load(candidate.read_text(encoding="utf-8")),
+                str(candidate),
+            )
     package_dir = resources.files("sunset_it.profiles")
     resource = package_dir / f"{name}.yaml"
     if not resource.is_file():
@@ -34,7 +58,10 @@ def _read_profile_yaml(name: str, override_dir: Path | None) -> dict[str, Any]:
             f"(override_dir={override_dir}, package={package_dir})"
         )
         raise FileNotFoundError(msg)
-    return yaml.safe_load(resource.read_text(encoding="utf-8")) or {}
+    return _coerce_mapping(
+        yaml.safe_load(resource.read_text(encoding="utf-8")),
+        str(resource),
+    )
 
 
 def _deep_merge(parent: dict[str, Any], child: dict[str, Any]) -> dict[str, Any]:

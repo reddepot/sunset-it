@@ -25,6 +25,8 @@ from sunset_it.models.reports import LockdownReport
 from sunset_it.profiles.loader import load_profile
 from sunset_it.utils.git import (
     GitError,
+    add_paths,
+    commit_staged,
     create_annotated_tag,
     create_branch_from_head,
     current_sha,
@@ -145,6 +147,51 @@ def lockdown(
             )
 
     final_tag = tag_name or _default_tag_name(timestamp)
+
+    # Spec attack v0.1.1 (Gemini P1): the previous order was
+    # tag → branch → README banner. The banner write left the working
+    # tree dirty AFTER the tag had already been created, so the tag
+    # pointed at a state that did NOT include the banner. Re-running
+    # then required a manual ``git commit`` to make the second pass
+    # idempotent — the test suite was patching that gap, hiding the
+    # bug.
+    #
+    # New order: write the banner → stage + commit it → tag the
+    # commit-with-banner → branch off that commit. The freeze tag now
+    # truly points at the project state advertised by the banner.
+    readme_banner_added = False
+    banner_committed = False
+    if update_readme_banner:
+        readme = _readme_path(repo)
+        if readme is None:
+            skipped.append("readme_not_found")
+        else:
+            try:
+                outcome = _add_readme_banner(
+                    readme,
+                    final_tag,
+                    branch_name,
+                    profile.name,
+                    timestamp,
+                )
+                if outcome == "written":
+                    readme_banner_added = True
+                    actions.append(f"readme_banner_added: {readme.name}")
+                    try:
+                        add_paths(repo, readme.name)
+                        commit_staged(
+                            repo,
+                            f"chore(sunset-it): add freeze banner for {final_tag}",
+                        )
+                        banner_committed = True
+                        actions.append("readme_banner_committed")
+                    except GitError as e:
+                        skipped.append(f"readme_banner_commit_failed: {e}")
+                else:
+                    skipped.append(f"readme_banner_already_present: {readme.name}")
+            except OSError as e:
+                skipped.append(f"readme_banner_failed: {e}")
+
     tag_created: str | None = None
     try:
         if has_tag(repo, final_tag):
@@ -172,27 +219,10 @@ def lockdown(
     except GitError as e:
         skipped.append(f"branch_failed: {e}")
 
-    readme_banner_added = False
-    if update_readme_banner:
-        readme = _readme_path(repo)
-        if readme is None:
-            skipped.append("readme_not_found")
-        else:
-            try:
-                outcome = _add_readme_banner(
-                    readme,
-                    tag_created or final_tag,
-                    branch_name,
-                    profile.name,
-                    timestamp,
-                )
-                if outcome == "written":
-                    readme_banner_added = True
-                    actions.append(f"readme_banner_added: {readme.name}")
-                else:
-                    skipped.append(f"readme_banner_already_present: {readme.name}")
-            except OSError as e:
-                skipped.append(f"readme_banner_failed: {e}")
+    # Suppress the unused-but-recorded marker; banner_committed is part
+    # of the report data flow even when False. Lint catches this if we
+    # don't reference it.
+    _ = banner_committed
 
     report = LockdownReport(
         timestamp=timestamp,

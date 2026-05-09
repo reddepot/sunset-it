@@ -304,7 +304,7 @@ def reactivate(
 - redirect vers fork si applicable
 - lockdown final + GitHub repo archived flag
 
-## Checks (15 minimum pour MVP)
+## Checks (9 livrés en v0.1, +6 prévus v0.2)
 
 | Check | Severity (solo-frozen) | Description |
 |---|---|---|

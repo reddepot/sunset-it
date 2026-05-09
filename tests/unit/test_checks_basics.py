@@ -60,15 +60,29 @@ def test_runbook_present_pass(tmp_path: Path) -> None:
     assert result.passed is True
 
 
-def test_ai_generation_manifest_pass(tmp_path: Path) -> None:
-    (tmp_path / "AI_GENERATION_MANIFEST.md").write_text("# manifest\n", encoding="utf-8")
+def test_ai_generation_manifest_pass_with_required_sections(tmp_path: Path) -> None:
+    """Spec attack v0.1.1 (Codex P2): manifest now needs at least one
+    real section keyword, not just any non-empty content."""
+    (tmp_path / "AI_GENERATION_MANIFEST.md").write_text(
+        "# manifest\n\n## Models used\n- claude-opus-4-7\n", encoding="utf-8"
+    )
     result = run_manifest(tmp_path, CFG_WARNING)
     assert result.passed is True
 
 
-def test_ai_generation_manifest_fail(tmp_path: Path) -> None:
+def test_ai_generation_manifest_fail_on_missing_file(tmp_path: Path) -> None:
     result = run_manifest(tmp_path, CFG_WARNING)
     assert result.passed is False
+
+
+def test_ai_generation_manifest_fail_on_empty_template(tmp_path: Path) -> None:
+    """A scaffold-only file without the required sections must NOT pass."""
+    (tmp_path / "AI_GENERATION_MANIFEST.md").write_text(
+        "# manifest\n\nTODO: fill in.\n", encoding="utf-8"
+    )
+    result = run_manifest(tmp_path, CFG_WARNING)
+    assert result.passed is False
+    assert "required sections" in result.message.lower()
 
 
 def test_adr_dir_present_below_min_count_fails(tmp_path: Path) -> None:

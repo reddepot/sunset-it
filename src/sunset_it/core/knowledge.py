@@ -12,6 +12,7 @@ emitted in deterministic name-sorted order.
 
 from __future__ import annotations
 
+import re
 import tomllib
 from datetime import UTC, datetime
 from importlib import resources
@@ -34,8 +35,14 @@ _TARGET_BY_TEMPLATE = {
     "AI_GENERATION_MANIFEST.md": Path("AI_GENERATION_MANIFEST.md"),
     "SUNSET_NOTICE.md": Path("docs/SUNSET_NOTICE.md"),
     "LESSONS.md": Path("docs/LESSONS.md"),
-    "ADR.md": Path("docs/adr/ADR-0001-freeze-decision.md"),
+    # Spec attack v0.1.1 (Gemini P3): ADR target is now resolved
+    # dynamically via ``_next_adr_path`` so re-running on a repo that
+    # already has 3 ADRs creates ADR-0004, not a collision on
+    # ADR-0001-freeze-decision.md.
+    "ADR.md": None,  # resolved at render time
 }
+_ADR_DIR = Path("docs/adr")
+_ADR_FILENAME_RE = re.compile(r"^ADR-(\d+)[-_].*\.md$")
 
 
 def _build_jinja_env(template_overrides_dir: Path | None) -> Environment:
@@ -55,6 +62,27 @@ def _build_jinja_env(template_overrides_dir: Path | None) -> Environment:
         trim_blocks=False,
         lstrip_blocks=False,
     )
+
+
+def _next_adr_path(repo: Path) -> Path:
+    """Return ``docs/adr/ADR-<N+1>-freeze-decision.md`` where N is the
+    highest existing ADR number found under ``docs/adr/``.
+
+    Falls back to ``ADR-0001-freeze-decision.md`` if the directory is
+    empty or absent.
+    """
+    adr_dir = repo / _ADR_DIR
+    next_n = 1
+    if adr_dir.is_dir():
+        existing = []
+        for entry in adr_dir.iterdir():
+            if entry.is_file():
+                match = _ADR_FILENAME_RE.match(entry.name)
+                if match is not None:
+                    existing.append(int(match.group(1)))
+        if existing:
+            next_n = max(existing) + 1
+    return _ADR_DIR / f"ADR-{next_n:04d}-freeze-decision.md"
 
 
 def _detect_project_meta(repo: Path) -> dict[str, Any]:
@@ -153,15 +181,18 @@ def knowledge(
     failed: list[str] = []
 
     for template_name in sorted(profile.templates.emit):
-        target_rel = _TARGET_BY_TEMPLATE.get(template_name)
-        if target_rel is None:
+        if template_name == "ADR.md":
+            target_rel = _next_adr_path(target_root)
+        elif template_name in _TARGET_BY_TEMPLATE:
+            mapped = _TARGET_BY_TEMPLATE[template_name]
+            if mapped is None:
+                failed.append(f"{template_name}: no target mapping")
+                continue
+            target_rel = mapped
+        else:
             failed.append(f"{template_name}: no target mapping")
             continue
         target_relpath_in_emit = target_rel
-        if emit_dir is not None:
-            # When emit_dir is set, write everything under it as a flat
-            # tree so the user can preview the bundle before merging.
-            target_relpath_in_emit = target_rel
         try:
             result = _render_one(
                 env,

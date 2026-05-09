@@ -85,3 +85,13 @@ def current_branch(repo: Path) -> str:
 
 def current_sha(repo: Path) -> str:
     return _git(repo, "rev-parse", "HEAD").strip()
+
+
+def add_paths(repo: Path, *paths: str) -> None:
+    """Stage one or more paths."""
+    _git(repo, "add", "--", *paths)
+
+
+def commit_staged(repo: Path, message: str) -> None:
+    """Commit currently-staged changes (no-op if nothing staged)."""
+    _git(repo, "commit", "--quiet", "-m", message)

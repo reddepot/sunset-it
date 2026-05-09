@@ -26,7 +26,10 @@ _PATTERNS = (
     re.compile(r"\bAIza[0-9A-Za-z_\-]{30,}\b"),
     re.compile(r"\bhf_[A-Za-z0-9]{30,}\b"),
     re.compile(r"\bsk_live_[A-Za-z0-9]{20,}\b"),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    # Self-attack P2: bare ``sk-`` is too broad — it matched legitimate
+    # identifiers like ``sk-storage-class-v2-eu-west-3``. Restrict to the
+    # 2026 OpenAI / Anthropic key prefixes.
+    re.compile(r"\bsk-(proj|svcacct|admin|ant-api03|None|live|test)-[A-Za-z0-9_-]{20,}\b"),
     re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----"),
 )
 _TEXT_SUFFIXES = {
@@ -34,6 +37,10 @@ _TEXT_SUFFIXES = {
     ".toml", ".env", ".sh", ".md", ".txt", ".cfg", ".ini",
     ".rs", ".go", ".rb", ".java", ".kt", ".cs", ".html", ".css",
 }
+# Spec attack v0.1.1 (Codex P2): files like ``.env`` at repo root have
+# ``Path(".env").suffix == ""`` so the suffix-only filter ignored them.
+# Match by basename for the env-shaped exceptions.
+_TEXT_BASENAMES = {".env", ".env.local", ".env.sample", ".envrc", "Makefile", "Dockerfile"}
 _IGNORE_DIRS = {
     ".git", ".venv", "venv", "node_modules", "__pycache__",
     ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build",
@@ -49,7 +56,12 @@ def _iter_text_files(repo: Path) -> list[Path]:
             continue
         if any(part in _IGNORE_DIRS for part in path.relative_to(repo).parts):
             continue
-        if path.suffix.lower() not in _TEXT_SUFFIXES:
+        # Match either by suffix or by basename (covers .env / Dockerfile /
+        # Makefile that have empty suffixes — Codex P2).
+        if (
+            path.suffix.lower() not in _TEXT_SUFFIXES
+            and path.name not in _TEXT_BASENAMES
+        ):
             continue
         out.append(path)
     return sorted(out)
@@ -59,10 +71,14 @@ def run(repo: Path, config: ProfileCheckConfig) -> CheckResult:
     t0 = time.monotonic()
     hits: list[dict[str, str | int]] = []
     for path in _iter_text_files(repo):
+        # Spec attack v0.1.1 (Gemini P2): the previous version called
+        # ``read_text()`` (which loads the entire file in memory) then
+        # sliced. A 5 GB SQL dump or untracked log file would OOM the
+        # whole audit before the check could even decide to skip it.
+        # Streamed read caps physical RAM use at ``_MAX_BYTES_PER_FILE``.
         try:
-            content = path.read_text(encoding="utf-8", errors="replace")[
-                :_MAX_BYTES_PER_FILE
-            ]
+            with path.open(encoding="utf-8", errors="replace") as fh:
+                content = fh.read(_MAX_BYTES_PER_FILE)
         except OSError:
             continue
         for pattern in _PATTERNS:
