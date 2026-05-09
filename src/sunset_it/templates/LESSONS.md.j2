@@ -1,0 +1,71 @@
+# {{ project_name }} — Lessons learned
+
+> One page. 4Ls format (Liked / Learned / Lacked / Longed for) +
+> "if I rewrote this today" section. The point is to make
+> reactivation cheaper, not to write a book.
+
+Date: {{ generated_at | default("TODO", true) }}
+
+## Liked
+
+> What worked well that I want to repeat in future projects.
+
+{% if liked %}
+{% for item in liked %}
+- {{ item }}
+{% endfor %}
+{% else %}
+- (TODO)
+{% endif %}
+
+## Learned
+
+> Surprising findings. Especially: things the IDE/AI assistants got
+> wrong that took time to discover.
+
+{% if learned %}
+{% for item in learned %}
+- {{ item }}
+{% endfor %}
+{% else %}
+- (TODO)
+{% endif %}
+
+## Lacked
+
+> Things that hurt; absent tooling, missing tests, missing review.
+
+{% if lacked %}
+{% for item in lacked %}
+- {{ item }}
+{% endfor %}
+{% else %}
+- (TODO)
+{% endif %}
+
+## Longed for
+
+> Things I'd add if effort was free.
+
+{% if longed_for %}
+{% for item in longed_for %}
+- {{ item }}
+{% endfor %}
+{% else %}
+- (TODO)
+{% endif %}
+
+## If I rewrote this today
+
+{% if rewrite_today %}
+{{ rewrite_today }}
+{% else %}
+TODO: 3-5 sentences. Be honest about what you'd do differently with
+hindsight + access to current models. This is the most useful
+section for the AI agent that opens this repo in 12 months.
+{% endif %}
+
+---
+
+*Scaffolded by `sunset-it knowledge` on
+{{ generated_at | default("TODO", true) }}.*

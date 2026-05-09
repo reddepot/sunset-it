@@ -1,0 +1,53 @@
+# ADR-{{ adr_number | default("0001", true) }} — {{ adr_title | default("TITLE", true) }}
+
+- **Status**: {{ adr_status | default("Proposed", true) }} <!-- Proposed | Accepted | Superseded by ADR-NNNN | Deprecated -->
+- **Date**: {{ generated_at | default("TODO", true) }}
+- **Deciders**: {{ deciders | default("solo maintainer", true) }}
+
+## Context
+
+{{ adr_context | default("Why are we making this decision? What is the
+problem? What constraints apply (tech, time, skill, project status)?", true) }}
+
+## Decision
+
+{{ adr_decision | default("What did we decide? State it clearly in 1-3 sentences.", true) }}
+
+## Consequences
+
+### Positive
+
+{% if positives %}
+{% for p in positives %}
+- {{ p }}
+{% endfor %}
+{% else %}
+- (TODO)
+{% endif %}
+
+### Negative / trade-offs
+
+{% if negatives %}
+{% for n in negatives %}
+- {{ n }}
+{% endfor %}
+{% else %}
+- (TODO)
+{% endif %}
+
+## Alternatives considered
+
+{% if alternatives %}
+{% for alt in alternatives %}
+- **{{ alt.name }}** — {{ alt.why_rejected }}
+{% endfor %}
+{% else %}
+- (TODO: at least one alternative — if there's no alternative, this
+  isn't really a decision.)
+{% endif %}
+
+---
+
+*Scaffolded by `sunset-it knowledge`. Edit freely; mark superseded
+ADRs by changing the status and adding a forward link rather than
+deleting.*

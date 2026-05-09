@@ -1,0 +1,51 @@
+"""Typer CliRunner integration tests for the public CLI."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from sunset_it.cli import app
+
+runner = CliRunner()
+
+
+def test_version_flag() -> None:
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "sunset-it" in result.stdout
+
+
+def test_audit_help() -> None:
+    result = runner.invoke(app, ["audit", "--help"])
+    assert result.exit_code == 0
+    assert "audit" in result.stdout.lower()
+
+
+def test_audit_json_on_empty_dir(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["audit", str(tmp_path), "--output", "json"])
+    # Empty repo will be RED; exit code 2.
+    assert result.exit_code == 2
+    parsed = json.loads(result.stdout)
+    assert parsed["profile_name"] == "solo-frozen"
+    assert parsed["summary"]["overall_status"] == "red"
+
+
+def test_audit_fail_on_never_returns_zero(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app, ["audit", str(tmp_path), "--output", "json", "--fail-on", "never"]
+    )
+    assert result.exit_code == 0
+
+
+def test_knowledge_emits_files(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.1"\nrequires-python = ">=3.11"\n',
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["knowledge", str(tmp_path), "--output", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data["files_written"]) >= 5  # 5 templates declared in solo-frozen

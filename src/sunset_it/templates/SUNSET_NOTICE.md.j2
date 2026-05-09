@@ -1,0 +1,46 @@
+# Sunset / Freeze Notice — {{ project_name }}
+
+> One-page status. If a future maintainer (or future-you) lands on
+> the repo, this tells them what they're looking at.
+
+## Status
+
+**{{ freeze_status | upper | default("FROZEN", true) }}** as of
+{{ freeze_date | default("TODO", true) }}.
+
+## What this means
+
+- {{ status_means | default("No active development. Bug fixes and security patches accepted on the maintenance branch only.", true) }}
+
+## Why
+
+{{ freeze_reason | default("TODO: short rationale (1-2 sentences). E.g.,
+the project reached its functional goal and the maintainer is moving
+to other work. The state is stable; the freeze is reversible if a
+real need arises.", true) }}
+
+## Reactivation policy
+
+- **Trigger conditions**: {{ reactivation_triggers | default("CVE Critical/High on direct dependency, Python runtime EOL, model used has retirement < 90 days, real user need.", true) }}
+- **How**: see `docs/RUNBOOK.md` "Restore from freeze" + run
+  `sunset-it reactivate .` to formalise the exit.
+
+## Maintenance window
+
+- Branch: `{{ maintenance_branch | default("maintenance", true) }}`
+- Last known-good tag: `{{ freeze_tag | default("TODO", true) }}`
+- Watch policy: see `.github/workflows/sunset.yml` (runs
+  `sunset-it watch` weekly).
+
+## Contact
+
+{% if contact %}
+{{ contact }}
+{% else %}
+No active maintainer. File an issue or fork at your discretion.
+{% endif %}
+
+---
+
+*Scaffolded by `sunset-it knowledge` on
+{{ generated_at | default("TODO", true) }}.*

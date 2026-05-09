@@ -1,0 +1,82 @@
+# Agent Instructions for {{ project_name }}
+
+> Cross-tool agent context (Claude Code, Cursor, GitHub Copilot,
+> Gemini CLI, Codex). Read this before generating code in this repo.
+
+## Project overview
+
+{{ project_overview | default("TODO: one-paragraph description.", true) }}
+
+## Project status
+
+- **State**: {{ freeze_status | default("frozen", true) }}
+- **Frozen at**: {{ freeze_date | default("TODO", true) }}
+- **Reactivation policy**: {{ reactivation_policy | default("on-demand by maintainer; see RUNBOOK.md", true) }}
+
+## Build, test, lint
+
+- **Install**: `{{ install_cmd | default("uv sync --all-extras", true) }}`
+- **Tests**: `{{ test_cmd | default("uv run pytest", true) }}`
+- **Lint**: `{{ lint_cmd | default("uv run ruff check .", true) }}`
+- **Type check**: `{{ typecheck_cmd | default("uv run mypy src/", true) }}`
+- **Smoke**: `{{ smoke_cmd | default("uv run python -c 'import " ~ project_module ~ "'", true) }}`
+
+## Conventions to respect
+
+{% if conventions %}
+{% for convention in conventions %}
+- {{ convention }}
+{% endfor %}
+{% else %}
+- Python ≥ {{ python_min | default("3.11", true) }}
+- mypy `--strict` clean
+- ruff clean (config in `pyproject.toml`)
+- No new runtime dependency without an ADR
+{% endif %}
+
+## Known pitfalls
+
+{% if pitfalls %}
+{% for pitfall in pitfalls %}
+- {{ pitfall }}
+{% endfor %}
+{% else %}
+- (none documented yet — add as you discover them)
+{% endif %}
+
+## Areas not to evolve without re-evaluation
+
+{% if locked_areas %}
+{% for area in locked_areas %}
+- {{ area }}
+{% endfor %}
+{% else %}
+- See `docs/adr/` for architectural decisions that should not change
+  without writing a superseding ADR.
+{% endif %}
+
+## Security boundary
+
+- No secrets in source. Use `.env.example` as the template; real
+  secrets stay in `.env` (gitignored) or in the secret manager.
+- Do not generate `pull_request_target` workflows.
+- Do not commit lockfiles modifications without re-running the
+  full test suite first.
+
+## Reactivation contract
+
+If you (a future agent or human) need to extend this project:
+
+1. Read `docs/RUNBOOK.md` to bring the environment back up.
+2. Read `AI_GENERATION_MANIFEST.md` to know which models produced
+   what, and which prompts are load-bearing.
+3. Run `sunset-it audit . --profile {{ profile_name | default("solo-frozen", true) }}`
+   to confirm the freeze invariants still hold before any change.
+4. After your change, re-run `sunset-it audit .` and either keep the
+   audit green or document the new state in `LESSONS.md`.
+
+---
+
+*This file was scaffolded by `sunset-it knowledge` on
+{{ generated_at | default("TODO", true) }}. Edit it freely — it is
+yours, not the tool's.*

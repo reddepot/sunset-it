@@ -1,0 +1,59 @@
+# Solo developer freeze — reversible, no external users.
+# Default profile for the dogfood case (POLYBUILD v3.2.6 et al.).
+
+name: solo-frozen
+description: >-
+  Solo developer project, reversible freeze, no external users, AI-coded
+  codebase. Optimised for "future-me opens this in 6 months" scenario.
+
+extends: null
+
+checks:
+  lockfile_present:
+    severity: blocker
+    enabled: true
+  agents_md_present:
+    severity: blocker
+    enabled: true
+  runbook_present:
+    severity: blocker
+    enabled: true
+  ai_generation_manifest:
+    severity: warning
+    enabled: true
+  adr_dir_present:
+    severity: warning
+    enabled: true
+    params:
+      min_count: 3
+  readme_freeze_banner:
+    severity: warning
+    enabled: true
+  git_freeze_tag:
+    severity: warning
+    enabled: true
+  secrets_clean:
+    severity: blocker
+    enabled: true
+  python_runtime_supported:
+    severity: warning
+    enabled: true
+
+templates:
+  emit:
+    - AGENTS.md
+    - RUNBOOK.md
+    - AI_GENERATION_MANIFEST.md
+    - SUNSET_NOTICE.md
+    - LESSONS.md
+  optional:
+    - ADR.md
+
+watch:
+  schedule: weekly
+  cve_threshold_cvss: 7.0
+  dep_eol_window_days: 90
+  image_drift_max_days: 180
+  model_deprecation_window_days: 90
+  prompt_regression_max_pct: 5.0
+  emit_issues: true

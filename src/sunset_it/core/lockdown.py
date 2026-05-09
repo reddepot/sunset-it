@@ -1,0 +1,215 @@
+"""``lockdown`` phase: tag + branch + README banner + lockfile freeze.
+
+This is the only phase that intentionally writes to the repo.
+Idempotence: if the tag or branch already exists, the phase reports
+"skipped" without raising. The README banner is added once and
+detected by a marker comment — re-running won't duplicate.
+
+Determinism: tag name defaults to ``freeze-YYYY-MM-DD``; the date is
+the only wallclock dependency. The phase requires a clean working
+tree by default to guarantee the tagged state is meaningful.
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Literal
+
+import structlog
+
+from sunset_it._version import __version__
+from sunset_it.models.profile import Profile
+from sunset_it.models.reports import LockdownReport
+from sunset_it.profiles.loader import load_profile
+from sunset_it.utils.git import (
+    GitError,
+    create_annotated_tag,
+    create_branch_from_head,
+    current_sha,
+    has_branch,
+    has_tag,
+    is_dirty,
+)
+
+logger = structlog.get_logger()
+
+_BANNER_MARKER_OPEN = "<!-- sunset-it:freeze-banner -->"
+_BANNER_MARKER_CLOSE = "<!-- /sunset-it:freeze-banner -->"
+_README_CANDIDATES = ("README.md", "Readme.md", "readme.md")
+
+
+def _default_tag_name(timestamp: datetime) -> str:
+    return f"freeze-{timestamp:%Y-%m-%d}"
+
+
+def _readme_path(repo: Path) -> Path | None:
+    for name in _README_CANDIDATES:
+        candidate = repo / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _build_banner(tag: str, branch: str, profile_name: str, timestamp: datetime) -> str:
+    return (
+        f"{_BANNER_MARKER_OPEN}\n"
+        f"> **🥶 Frozen as of {timestamp:%Y-%m-%d}**\n"
+        f"> \n"
+        f"> Last known-good tag: `{tag}` · "
+        f"maintenance branch: `{branch}` · "
+        f"profile: `{profile_name}`. "
+        f"See [`docs/SUNSET_NOTICE.md`](docs/SUNSET_NOTICE.md) and "
+        f"[`docs/RUNBOOK.md`](docs/RUNBOOK.md) for the reactivation policy.\n"
+        f"{_BANNER_MARKER_CLOSE}\n\n"
+    )
+
+
+def _add_readme_banner(
+    readme: Path,
+    tag: str,
+    branch: str,
+    profile_name: str,
+    timestamp: datetime,
+) -> Literal["written", "already_present"]:
+    content = readme.read_text(encoding="utf-8")
+    if _BANNER_MARKER_OPEN in content:
+        return "already_present"
+    banner = _build_banner(tag, branch, profile_name, timestamp)
+    # Insert AFTER the first H1 if there is one, otherwise at the very top.
+    h1_match = re.match(r"^(# [^\n]*\n)", content)
+    if h1_match is not None:
+        new = content[: h1_match.end()] + "\n" + banner + content[h1_match.end():]
+    else:
+        new = banner + content
+    readme.write_text(new, encoding="utf-8")
+    return "written"
+
+
+def lockdown(
+    repo: Path,
+    tag_name: str | None = None,
+    branch_name: str = "maintenance",
+    profile_name: str = "solo-frozen",
+    profile: Profile | None = None,
+    update_readme_banner: bool = True,
+    allow_dirty: bool = False,
+) -> LockdownReport:
+    """Apply the freeze: annotated tag + maintenance branch + README banner.
+
+    Args:
+        repo: project root.
+        tag_name: defaults to ``freeze-YYYY-MM-DD``.
+        branch_name: maintenance branch (created at HEAD).
+        profile_name: profile to load.
+        profile: pre-loaded Profile (test injection).
+        update_readme_banner: insert the banner if absent.
+        allow_dirty: skip the clean-working-tree precondition.
+
+    Returns:
+        ``LockdownReport`` describing every action taken/skipped.
+    """
+    repo = repo.resolve()
+    if profile is None:
+        profile = load_profile(profile_name)
+
+    timestamp = datetime.now(UTC)
+    actions: list[str] = []
+    skipped: list[str] = []
+
+    if not allow_dirty:
+        try:
+            if is_dirty(repo):
+                skipped.append(
+                    "working_tree_dirty: refusing to lockdown until "
+                    "git status is clean (use --allow-dirty to override)"
+                )
+                return LockdownReport(
+                    timestamp=timestamp,
+                    sunset_it_version=__version__,
+                    repo_path=repo,
+                    profile_name=profile.name,
+                    actions_taken=actions,
+                    actions_skipped=skipped,
+                )
+        except GitError as e:
+            skipped.append(f"git_status_failed: {e}")
+            return LockdownReport(
+                timestamp=timestamp,
+                sunset_it_version=__version__,
+                repo_path=repo,
+                profile_name=profile.name,
+                actions_taken=actions,
+                actions_skipped=skipped,
+            )
+
+    final_tag = tag_name or _default_tag_name(timestamp)
+    tag_created: str | None = None
+    try:
+        if has_tag(repo, final_tag):
+            skipped.append(f"tag_already_exists: {final_tag}")
+        else:
+            sha = current_sha(repo)
+            create_annotated_tag(
+                repo,
+                final_tag,
+                f"sunset-it freeze: {final_tag} at {sha} (profile {profile.name})",
+            )
+            tag_created = final_tag
+            actions.append(f"tag_created: {final_tag}")
+    except GitError as e:
+        skipped.append(f"tag_failed: {e}")
+
+    branch_created: str | None = None
+    try:
+        if has_branch(repo, branch_name):
+            skipped.append(f"branch_already_exists: {branch_name}")
+        else:
+            create_branch_from_head(repo, branch_name)
+            branch_created = branch_name
+            actions.append(f"branch_created: {branch_name}")
+    except GitError as e:
+        skipped.append(f"branch_failed: {e}")
+
+    readme_banner_added = False
+    if update_readme_banner:
+        readme = _readme_path(repo)
+        if readme is None:
+            skipped.append("readme_not_found")
+        else:
+            try:
+                outcome = _add_readme_banner(
+                    readme,
+                    tag_created or final_tag,
+                    branch_name,
+                    profile.name,
+                    timestamp,
+                )
+                if outcome == "written":
+                    readme_banner_added = True
+                    actions.append(f"readme_banner_added: {readme.name}")
+                else:
+                    skipped.append(f"readme_banner_already_present: {readme.name}")
+            except OSError as e:
+                skipped.append(f"readme_banner_failed: {e}")
+
+    report = LockdownReport(
+        timestamp=timestamp,
+        sunset_it_version=__version__,
+        repo_path=repo,
+        profile_name=profile.name,
+        tag_created=tag_created,
+        branch_created=branch_created,
+        readme_banner_added=readme_banner_added,
+        actions_taken=actions,
+        actions_skipped=skipped,
+    )
+    logger.info(
+        "lockdown_done",
+        repo=str(repo),
+        tag=tag_created,
+        branch=branch_created,
+        banner=readme_banner_added,
+    )
+    return report

@@ -1,0 +1,90 @@
+# AI Generation Manifest — {{ project_name }}
+
+> Document the LLMs used during the project's lifetime, the prompts
+> that mattered, and the decisions that should not be regenerated
+> without review. Required for any AI-coded project entering freeze.
+
+## Project state
+
+- **Freeze date**: {{ freeze_date | default("TODO", true) }}
+- **Freeze tag**: `{{ freeze_tag | default("TODO", true) }}`
+- **Primary language/runtime**: {{ language | default("Python", true) }} {{ runtime_version | default("3.11+", true) }}
+- **Critical external APIs**: {{ external_apis | default("(none)", true) }}
+
+## Models used during development
+
+{% if models %}
+| Tool | Model | Period | Main role | Notes |
+|------|-------|--------|-----------|-------|
+{% for model in models %}
+| {{ model.tool }} | {{ model.id }} | {{ model.period }} | {{ model.role }} | {{ model.notes | default("", true) }} |
+{% endfor %}
+{% else %}
+| Tool | Model | Period | Main role | Notes |
+|------|-------|--------|-----------|-------|
+| Claude Code | claude-opus-4-7 | <YYYY-MM..YYYY-MM> | architecture / implementation / review | TODO |
+| GitHub Copilot | gpt-5.5 | <YYYY-MM..YYYY-MM> | inline completion / tests | TODO |
+| Kimi CLI | kimi-k2.6 | <YYYY-MM..YYYY-MM> | challenger / cross-review | TODO |
+{% endif %}
+
+## Non-regenerable decisions
+
+> Decisions that depend on a specific model's behaviour at a specific
+> point in time. Re-running the prompt with a newer model will not
+> reproduce the same code. If you change one of these, write a new
+> ADR explaining why.
+
+{% if decisions %}
+{% for d in decisions %}
+- **{{ d.title }}** — {{ d.rationale }}
+  - ADR: `docs/adr/{{ d.adr }}.md`
+  - Original prompt: `{{ d.prompt_path | default("TODO", true) }}`
+  - What must not change without review: {{ d.invariant }}
+
+{% endfor %}
+{% else %}
+- (no non-regenerable decisions documented yet)
+{% endif %}
+
+## Load-bearing prompts
+
+> Prompts that produced critical artifacts. Archive verbatim under
+> `prompts/` so a future maintainer (or future-you) can re-run them.
+
+{% if prompts %}
+{% for p in prompts %}
+- `prompts/{{ p.path }}` — {{ p.purpose }} (model: `{{ p.model_id }}`)
+{% endfor %}
+{% else %}
+- `prompts/architecture.md` — architectural choices brief (model: TODO)
+- `prompts/golden_brief.md` — canonical example brief (model: TODO)
+{% endif %}
+
+## Known AI debt
+
+{% if ai_debts %}
+| Area | Risk | Detection | Mitigation |
+|------|------|-----------|------------|
+{% for debt in ai_debts %}
+| {{ debt.area }} | {{ debt.risk }} | {{ debt.detection }} | {{ debt.mitigation }} |
+{% endfor %}
+{% else %}
+| Area | Risk | Detection | Mitigation |
+|------|------|-----------|------------|
+| Test theatre | Tests written by same model as code may validate the bug | Cross-model review on critical paths | Property-based tests on invariants |
+| Model anchoring | Module N depends on a specific model's idiom | `sunset-it audit` flags model used | Refactor before model retirement window |
+| Prompt rot | Old prompt fails on new model | Re-run golden prompts on new model | Update or freeze with new model snapshot |
+| Hallucinated imports | LLM imported a non-existent package | `pip-audit` + import smoke at lockdown | Lockfile with hashes |
+{% endif %}
+
+## Reactivation note
+
+If a model used here is retired before reactivation, document the
+substitution chosen in `LESSONS.md` and supersede the relevant ADRs.
+Do not silently re-run the original prompts on a new model — the
+output will diverge subtly and you'll spend the next month debugging
+phantoms.
+
+---
+
+*Scaffolded by `sunset-it knowledge` on {{ generated_at | default("TODO", true) }}.*

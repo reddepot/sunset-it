@@ -1,0 +1,81 @@
+# {{ project_name }} — Runbook
+
+> 1 page. Start, debug, restore. If it doesn't fit here, it doesn't
+> belong in a runbook.
+
+## Quick start (cold clone)
+
+```bash
+git clone {{ repo_url | default("<repo>", true) }}
+cd {{ project_module | default("<project>", true) }}
+{{ install_cmd | default("uv sync --all-extras", true) }}
+{{ smoke_cmd | default("uv run python -c 'import " ~ project_module ~ "'", true) }}
+```
+
+If the smoke import fails, you have a build/install problem — see
+"Common errors" below before going further.
+
+## Run the tests
+
+```bash
+{{ test_cmd | default("uv run pytest --no-cov -q", true) }}
+```
+
+Expected: green. If red, do **not** push fixes; treat the failure as
+a wake-event (see `docs/SUNSET_NOTICE.md`).
+
+## Lint & types
+
+```bash
+{{ lint_cmd | default("uv run ruff check .", true) }}
+{{ typecheck_cmd | default("uv run mypy src/", true) }}
+```
+
+## Common errors
+
+{% if common_errors %}
+{% for err in common_errors %}
+### {{ err.symptom }}
+
+{{ err.action }}
+
+{% endfor %}
+{% else %}
+### `ModuleNotFoundError`
+
+`{{ install_cmd | default("uv sync --all-extras", true) }}` was probably
+skipped. Re-run, then re-run the smoke command.
+
+### `pytest` collection error
+
+Ensure you are inside the activated venv (`uv run` handles this) and
+that `pyproject.toml` is intact.
+{% endif %}
+
+## Restore from freeze
+
+If the project must be reactivated:
+
+```bash
+git checkout {{ maintenance_branch | default("maintenance", true) }}
+git tag -l "{{ freeze_tag_pattern | default("freeze-*", true) }}" | tail -1
+sunset-it audit . --profile {{ profile_name | default("solo-frozen", true) }}
+sunset-it reactivate . --reason "<short justification>"
+```
+
+The `reactivate` step creates a new branch off `maintenance` and
+drops the freeze banner from the README.
+
+## Watch policy
+
+The CI workflow `.github/workflows/sunset.yml` runs
+`sunset-it watch` weekly. Any wake event (CVE, dep EOL, model
+deprecation) opens a labelled GitHub issue. Address it, run
+`sunset-it audit`, decide: ignore (close the issue with reason),
+patch on `maintenance`, or full reactivate.
+
+---
+
+*Scaffolded by `sunset-it knowledge` on
+{{ generated_at | default("TODO", true) }}. Keep it short. If it grows
+beyond a page, split into per-incident docs under `docs/runbooks/`.*

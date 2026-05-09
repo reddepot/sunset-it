@@ -1,0 +1,100 @@
+[project]
+name = "sunset-it"
+version = "0.1.0"
+description = "Solo dev project freeze/maintenance/sunset toolkit, focus AI-coded codebases"
+authors = [{ name = "reddie", email = "redtech@protonmail.com" }]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+
+dependencies = [
+    "typer>=0.12",
+    "pydantic>=2.5",
+    "jinja2>=3.1",
+    "pyyaml>=6.0",
+    "rich>=13.0",
+    "structlog>=23.0",
+    "tomli-w>=1.0",
+    "packaging>=23.0",
+]
+
+[project.optional-dependencies]
+audit = [
+    "pip-audit>=2.7",
+]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.1",
+    "mypy>=1.7",
+    "bandit>=1.7",
+    "hypothesis>=6.92",
+    "types-PyYAML>=6.0",
+]
+
+[project.scripts]
+sunset-it = "sunset_it.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/reddepot/sunset-it"
+Issues = "https://github.com/reddepot/sunset-it/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sunset_it"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/sunset_it/profiles" = "sunset_it/profiles"
+"src/sunset_it/templates" = "sunset_it/templates"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W", "I", "N", "UP", "B", "S", "C4",
+    "DTZ", "T20", "RET", "SIM", "PTH", "PL", "RUF",
+]
+ignore = [
+    "S101",   # assert (allowed in tests)
+    "PLR0913", # too many arguments (CLI commands inherently take many)
+    "PLR2004", # magic numbers (severity thresholds documented elsewhere)
+    "PLR0911", # too many returns (CLI / phase orchestrators legitimately fan out)
+    "PLR0912", # too many branches (idem)
+    "PLW0603", # global statement (registry caching pattern)
+    "PLC0415", # lazy imports (intentional for plugin discovery + cycle break)
+    "E501",   # line length (prose comments allowed long)
+    "S603",   # subprocess call without shell=True (always argv list)
+    "S607",   # partial executable path (resolved via shutil.which when needed)
+    "B008",   # function calls in default args (the Typer Option/Argument pattern)
+    "PLR0915", # too many statements (lockdown phase legitimately has many small steps)
+    "RUF001", # ambiguous unicode in strings (we render emoji icons intentionally)
+    "RUF003", # ambiguous unicode in comments (French prose allowed)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "PLR2004", "PLC0415", "F401", "F841"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+disallow_any_generics = true
+
+[[tool.mypy.overrides]]
+module = ["jinja2.*"]
+ignore_missing_imports = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q --tb=short --strict-markers"
+markers = [
+    "slow: tests > 5s",
+    "integration: integration tests",
+    "dogfood: dogfooding tests on real repos",
+]
